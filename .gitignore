@@ -1,0 +1,40 @@
+# --- Dependencies (cài lại bằng npm ci / pip install) ---
+node_modules/
+.venv/
+venv/
+
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# --- Secrets: KHÔNG BAO GIỜ commit. Chỉ .env.example được lên repo ---
+.env
+.env.*
+!.env.example
+
+# --- Build output ---
+# server/Dockerfile tự build web app trong một stage riêng, nên dist/ và
+# server/web/ committed sẽ có ngày lệch với source bên cạnh nó.
+dist/
+server/web/
+*.tsbuildinfo
+
+# --- Release binary & backup ---
+server/releases/*.exe
+server/backups/
+
+# --- Log ---
+*.log
+
+# --- ETL output: dữ liệu báo giá thật của khách, 57MB, tái tạo được bằng
+# script ETL trong server/deploy/. Chỉ giữ lại script phân tích. ---
+etl-output/*
+!etl-output/match_analysis.py
+
+# --- OS / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

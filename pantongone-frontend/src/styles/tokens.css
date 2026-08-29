@@ -1,0 +1,77 @@
+/* The desktop program's palette, by number.
+ *
+ * Taken from Z:\1\app.py and gate.py rather than matched by eye - the point of
+ * this app is that somebody who has used the .exe every day recognises it, and
+ * "nearly the same blue" is exactly what makes a screen feel like a copy of
+ * itself rather than itself.
+ *
+ * CSS custom properties, no framework (tech-stack.md 2). What Tailwind would be
+ * bought for here is a naming convention, and there is already one: the names
+ * below are the names the Python file uses.
+ */
+
+:root {
+  --bg: #f4f6f8; /* BG */
+  --navy: #16324f; /* NAVY - all ordinary text */
+  --blue: #1f6aa5; /* BLUE - buttons, the accent */
+  --green: #167d5a; /* GREEN - a figure that came out right */
+  --red: #b42318; /* RED - a refusal */
+  --amber: #9a6700; /* AMBER - a warning that is not yet a refusal */
+  --muted: #5f6b76; /* MUTED - notes, always on screen, never a tooltip */
+  --line: #cdd7e1;
+  --white: #ffffff;
+  --sunken: #f5f9fc;
+
+  /* Leelawadee UI is the desktop program's font and it draws Thai properly.
+   * It has no arrows, no tick and no warning triangle - Tk drew those as empty
+   * boxes because it does not fall back. A BROWSER does fall back, which is one
+   * of the faults this rewrite removes rather than reproduces. */
+  --font: 'Leelawadee UI', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, Consolas, monospace;
+
+  --fs-sm: 12px;
+  --fs: 14px;
+  --fs-lg: 16px;
+  --fs-title: 20px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--navy);
+  font-family: var(--font);
+  font-size: var(--fs);
+  /* -webkit-font-smoothing off by default: the desktop draws with GDI and thin
+     text is the most obvious way a copy stops looking like the original. */
+}
+
+input,
+select,
+button,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* WHERE THE KEYBOARD IS.
+ *
+ * Every browser draws something by default, and every reset quietly removes it.
+ * Somebody working down this form with Tab - which is how a form with thirty
+ * boxes is actually filled in - has to be able to see where they are. Only
+ * :focus-visible, so a mouse click does not leave a ring behind it.
+ */
+:where(input, select, textarea, button, [role='combobox'], [role='option']):focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}

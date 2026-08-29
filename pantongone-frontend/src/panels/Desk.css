@@ -1,0 +1,720 @@
+/* The desktop program's window, in a browser - app.py v1.7.1.
+ *
+ * The palette is taken from app.py by number rather than matched by eye: the
+ * point of this app is that somebody who has used the .exe every day
+ * recognises it. Plain buttons are the clam theme's own #dcdad5 with the
+ * #9e9a91 border, measured off a running Tk (not guessed); the accent button,
+ * the tabs, the step bar and the three price boxes carry app.py's exact
+ * values with their app.py lines noted below.
+ */
+
+.desk {
+  padding: 10px;
+  min-height: 100%;
+}
+
+/* Header (app.py:377-390): the name at 18pt bold NAVY, the quote-ref state in
+ * BLUE beside it, the subtitle muted below. */
+.desk-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 12px 6px;
+}
+
+.desk-head-line {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.desk-head h1 {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--navy);
+}
+
+.desk-head p {
+  margin: 3px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.desk-state {
+  font-size: var(--fs-sm);
+  color: var(--blue);
+}
+
+.desk-who {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  font-size: var(--fs-sm);
+}
+
+.desk-muted {
+  color: var(--muted);
+}
+
+.desk-plain {
+  font: inherit;
+  border: 1px solid #9e9a91;
+  background: #dcdad5;
+  color: #000;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+/* The primary-actions card (app.py:392-466): a white card holding the
+ * wrapping toolbar and the amber status line. */
+.desk-actions {
+  background: #fff;
+  border: 1px solid #9e9a91;
+  padding: 8px 18px;
+  margin: 0 8px;
+}
+
+/* THE TOOLBAR WRAPS (widgets.py FlowFrame: gap 6px across, 4px down). */
+.desk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: flex-start;
+}
+
+/* Plain ttk clam button, by number. */
+.desk-bar button,
+.desk-buttonrow button,
+.desk-formula-reset button {
+  font: inherit;
+  padding: 5px 12px;
+  border: 1px solid #9e9a91;
+  background: #dcdad5;
+  color: #000;
+  cursor: pointer;
+}
+
+.desk-bar button:hover:not(:disabled),
+.desk-buttonrow button:hover:not(:disabled),
+.desk-formula-reset button:hover {
+  background: #eeebe7;
+}
+
+.desk-bar button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+/* Accent.TButton (app.py:335-341): BLUE, white, bold, padding (12, 7). */
+.desk-accent,
+.desk-bar .desk-accent,
+.desk-buttonrow .desk-accent {
+  background: var(--blue) !important;
+  border-color: var(--blue) !important;
+  color: #fff !important;
+  font-weight: 700;
+  padding: 7px 12px;
+  cursor: pointer;
+  border: 1px solid var(--blue);
+  font: inherit;
+  font-weight: 700;
+}
+
+.desk-accent:hover:not(:disabled) {
+  background: #174f7a !important;
+  border-color: #174f7a !important;
+}
+
+.desk-accent:active:not(:disabled) {
+  background: #123e60 !important;
+}
+
+.desk-accent:disabled {
+  color: #d0d5dd !important;
+}
+
+/* Warning.TLabel (app.py:315-320): amber bold on the white card - the one
+ * status voice the desktop has. */
+.desk-status {
+  margin: 6px 0 0;
+  font-size: var(--fs);
+  font-weight: 700;
+  color: #9a6700;
+  white-space: pre-line;
+}
+
+/* TNotebook.Tab (app.py:346-357). */
+.desk-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 10px 8px 0;
+}
+
+.desk-tabs button {
+  font: inherit;
+  font-weight: 700;
+  padding: 9px 16px;
+  border: 1px solid #9e9a91;
+  border-bottom: 0;
+  background: #dbe7f2;
+  color: var(--navy);
+  cursor: pointer;
+}
+
+.desk-tabs button:hover:not(.is-on) {
+  background: #b9d3e8;
+}
+
+.desk-tabs button.is-on {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+}
+
+.desk-tabs.is-inner {
+  margin: 0 0 -1px;
+}
+
+.desk-tabbody {
+  background: var(--bg);
+  border: 1px solid #9e9a91;
+  margin: 0 8px 18px;
+  padding: 8px 0 0;
+}
+
+/* Card.TFrame (app.py:281): white, one solid hairline, padding 12; placed
+ * with padx 8 pady 5. */
+.desk-card {
+  background: #fff;
+  border: 1px solid #9e9a91;
+  padding: 12px;
+  margin: 5px 8px;
+}
+
+.desk-card.is-compact {
+  padding: 6px;
+}
+
+/* {name}.Section.TLabel (app.py:358-374): white bold 11pt on the section's
+ * colour, padding (10, 7). The colour arrives inline from
+ * labels.section_colors. */
+.desk-band {
+  display: block;
+  margin: 0 0 8px;
+  padding: 7px 10px;
+  background: #185a8d;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.desk-band.is-tight {
+  margin: 0 0 8px;
+}
+
+.desk-band.is-brown {
+  background: #694a85;
+}
+
+/* The compact card's six equal columns (app.py:1007-1008). */
+.desk-row6 {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px 16px;
+  margin: 3px 0;
+}
+
+.desk-row6 .is-span2 {
+  grid-column: span 2;
+}
+
+@media (max-width: 980px) {
+  .desk-row6 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .desk-row6 .is-span2 {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 620px) {
+  .desk-row6 {
+    grid-template-columns: 1fr 1fr;
+  }
+  .desk-row6 .is-span2 {
+    grid-column: span 2;
+  }
+}
+
+/* Columns counted from the room there is, for the planning rows. */
+.desk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 6px 16px;
+}
+
+.desk-box {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.desk-box.is-button {
+  justify-content: flex-end;
+}
+
+.desk-label {
+  font-size: var(--fs-sm);
+  color: #1d2939;
+}
+
+.desk-hint {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.desk-box input,
+.desk-box select,
+.desk-box output,
+.desk-box textarea {
+  font: inherit;
+  padding: 5px 7px;
+  border: 1px solid #9e9a91;
+  background: #fff;
+  color: #1d2939;
+  min-width: 0;
+  width: 100%;
+}
+
+.desk-box output {
+  display: block;
+  background: #f7f9fb;
+  color: #1d2939;
+}
+
+.desk-pair {
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+  align-items: center;
+}
+
+.desk-pair > input:first-child {
+  flex: 1 1 auto;
+}
+
+.desk-pair > select {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.desk-narrow {
+  flex: 0 0 70px;
+  width: 70px;
+}
+
+.desk-tick {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+}
+
+.desk-tick input {
+  width: auto;
+}
+
+/* ------------------------------------------------------------- action bar */
+
+/* Pinned under the form the way the desktop packs it to the bottom of the
+ * Pricing tab (app.py:471, 1417-1641). */
+.desk-actionbar {
+  background: #fff;
+  border: 1px solid #9e9a91;
+  padding: 7px 10px;
+  margin: 5px 8px;
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+}
+
+/* Pricing.Section.TLabel (app.py:1421-1427): the step bar. */
+.desk-steps {
+  margin: 0 0 7px;
+  padding: 7px 10px;
+  background: #1f6f5f;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.desk-basisrow {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.desk-basis {
+  font: inherit;
+  padding: 5px 7px;
+  border: 1px solid #9e9a91;
+  background: #fff;
+  min-width: 240px;
+}
+
+/* Result.TLabel (app.py:306): 12pt bold GREEN. */
+.desk-primary,
+.desk-green {
+  margin: 4px 0;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--green);
+  white-space: pre-line;
+}
+
+.desk-greenout {
+  font-weight: 700;
+  color: var(--green) !important;
+}
+
+.desk-factors {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px 16px;
+}
+
+@media (max-width: 900px) {
+  .desk-factors {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.desk-mutednote {
+  margin: 6px 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+/* The three price boxes (app.py:1509-1603): three colours, and when selling
+ * by kg only the kg box is drawn, stretched across the row
+ * (app.py:2748-2777). */
+.desk-prices {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 8px 0;
+}
+
+.desk-prices.is-kg {
+  grid-template-columns: 1fr;
+}
+
+.desk-price {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 7px 9px;
+  white-space: pre-line;
+  min-width: 0;
+}
+
+.desk-price input,
+.desk-price output {
+  font: inherit;
+  padding: 6px 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.desk-price.is-calculated {
+  background: #eaf3fb;
+  border: 2px solid #7aa7c7;
+}
+
+.desk-price.is-calculated span {
+  color: var(--navy);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.desk-price.is-calculated output {
+  background: #f4f8fb;
+  border: 1px solid #9e9a91;
+}
+
+.desk-price.is-piece {
+  background: #fff4c2;
+  border: 3px solid #b7791f;
+  padding: 6px 9px;
+}
+
+.desk-price.is-piece span {
+  color: #7a4300;
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.desk-price.is-piece input {
+  background: #fffbed;
+  border: 2px solid #9e9a91;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.desk-price.is-kgbox {
+  background: #eaf7ee;
+  border: 2px solid #4b8f63;
+}
+
+.desk-price.is-kgbox span {
+  color: #245c38;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.desk-price.is-kgbox input {
+  background: #f4fcf6;
+  border: 1px solid #9e9a91;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .desk-prices {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ----------------------------------------------------------- planning tab */
+
+.desk-cardnote {
+  margin: 4px 0 8px;
+  font-size: var(--fs);
+  color: #1d2939;
+  overflow-wrap: anywhere;
+}
+
+.desk-source {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.desk-sourcerow {
+  display: flex;
+  gap: 5px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
+.desk-sourcebox {
+  position: relative;
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.desk-sourcebox input {
+  font: inherit;
+  padding: 5px 7px;
+  border: 1px solid #9e9a91;
+  background: #fff;
+  width: 100%;
+}
+
+/* Glyph.TButton (app.py:298-303): a symbol needs a font that has the symbol. */
+.desk-glyph {
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 12px;
+  padding: 5px 10px;
+  border: 1px solid #9e9a91;
+  background: #dcdad5;
+  color: #000;
+  cursor: pointer;
+}
+
+.desk-glyph:hover {
+  background: #eeebe7;
+}
+
+.desk-load {
+  flex: 0 0 auto;
+}
+
+/* The SuggestEntry popup (widgets.py:95-132): white, NAVY text, BLUE
+ * selection, Segoe UI 9, at most 12 rows, at least 260px wide. */
+.desk-suggest {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 30;
+  min-width: max(100%, 260px);
+  max-height: calc(12 * 1.9em);
+  overflow-y: auto;
+  margin: 0;
+  padding: 1px;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #9e9a91;
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 12px;
+  color: var(--navy);
+}
+
+.desk-suggest li {
+  padding: 3px 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.desk-suggest li.is-active,
+.desk-suggest li:hover {
+  background: var(--blue);
+  color: #fff;
+}
+
+.desk-panel {
+  padding: 12px 2px 2px;
+  border: 1px solid #9e9a91;
+  background: #fff;
+}
+
+.desk-panel > * {
+  margin-left: 10px;
+  margin-right: 10px;
+}
+
+.desk-subcard {
+  background: #fff;
+  border: 1px solid #9e9a91;
+  padding: 10px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.desk-subhead {
+  display: block;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--navy);
+  margin: 8px 0 4px;
+}
+
+.desk-formula textarea {
+  font-family: Consolas, var(--font-mono);
+  font-size: 13px;
+  width: 100%;
+  border: 1px solid #9e9a91;
+  padding: 5px 7px;
+  resize: vertical;
+}
+
+.desk-formula-reset {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.desk-buttonrow {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 7px 0 10px;
+}
+
+/* ResultCard.TFrame + KeyResult/ResultName (app.py:283, 307-313): the tiles
+ * reflow to the width there is, never a fixed count (app.py:656-670). */
+.desk-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+  margin: 10px 0;
+}
+
+.desk-result {
+  border: 1px solid #9e9a91;
+  background: #f5f9fc;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.desk-resultname {
+  font-size: var(--fs-sm);
+  color: #344054;
+}
+
+.desk-result strong {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--navy);
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------ history etc. */
+
+.desk-note {
+  margin: 8px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.desk-tablewrap {
+  margin-top: 12px;
+  overflow-x: auto;
+  border: 1px solid #9e9a91;
+  background: var(--white);
+}
+
+.desk-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--fs-sm);
+}
+
+.desk-table th,
+.desk-table td {
+  border-bottom: 1px solid #cdd7e1;
+  padding: 6px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.desk-table th {
+  background: #dcdad5;
+  position: sticky;
+  top: 0;
+  color: #1d2939;
+  font-weight: 700;
+}
+
+.desk-table .is-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-empty {
+  color: var(--muted);
+  text-align: center;
+  padding: 24px;
+}
+
+.desk-wait {
+  padding: 24px;
+  color: var(--muted);
+}

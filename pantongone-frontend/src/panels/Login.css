@@ -1,0 +1,131 @@
+/* The sign-in window, as the desktop draws it: a small card on the page
+ * background, not a full-width form. gate.py sets resizable(False, False) and
+ * pads by 26 - this is that box, at a size a phone can also hold. */
+
+.gate {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.gate-card {
+  width: 100%;
+  max-width: 460px;
+  background: var(--white);
+  border: 1px solid var(--line);
+  padding: 26px;
+}
+
+.gate-head {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.gate-head img {
+  flex: 0 0 auto;
+  /* The mark at the size it was drawn for, not the size of a tab icon. */
+  image-rendering: auto;
+}
+
+.gate-head h1 {
+  margin: 0;
+  font-size: var(--fs-title);
+  font-weight: 700;
+  color: var(--navy);
+}
+
+.gate-sub {
+  margin: 2px 0 0;
+  font-size: var(--fs);
+  color: var(--navy);
+}
+
+.gate-muted {
+  margin: 2px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* gate.py:150 puts TWO spaces around the bullet; HTML would fold them. */
+.gate-version {
+  white-space: pre;
+}
+
+.gate-row {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.gate-row > span {
+  font-size: var(--fs);
+  color: var(--navy);
+}
+
+.gate-row input {
+  border: 1px solid var(--line);
+  background: var(--white);
+  padding: 7px 8px;
+  min-width: 0;
+}
+
+.gate-row input:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: -1px;
+}
+
+/* Narrow enough that a 130px label column would leave four characters for the
+   box: the label goes above instead of the box getting smaller. */
+@media (max-width: 420px) {
+  .gate-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+
+.gate-message {
+  margin: 12px 0 0;
+  font-size: var(--fs-sm);
+  min-height: 1.2em;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.gate-message.is-error {
+  color: var(--red);
+}
+
+.gate-message.is-working {
+  color: var(--blue);
+}
+
+.gate-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16px;
+}
+
+.gate-foot button {
+  border: 1px solid var(--blue);
+  background: var(--blue);
+  color: var(--white);
+  font-weight: 600;
+  padding: 8px 18px;
+  cursor: pointer;
+}
+
+.gate-foot button:disabled {
+  background: var(--muted);
+  border-color: var(--muted);
+  cursor: progress;
+}

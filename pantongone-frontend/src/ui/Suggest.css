@@ -1,0 +1,88 @@
+.sug {
+  position: relative;
+  min-width: 0;
+}
+
+.sug > input {
+  border: 1px solid var(--line);
+  background: var(--white);
+  padding: 5px 24px 5px 7px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* The tap target that opens the list without typing - flat, clam-toned,
+   inside the input's own border so the box reads as one control. */
+.sug-toggle {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  width: 22px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: var(--white);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1;
+  padding: 0;
+}
+
+.sug-toggle:hover:not(:disabled) {
+  color: var(--navy);
+}
+
+.sug-toggle:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* The list floats, so it must be told to stay above whatever is drawn after
+   it - without this the next card's white background covers half of it. */
+.sug-list {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--white);
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 18px rgb(22 50 79 / 0.14);
+}
+
+.sug-list button {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+  padding: 6px 9px;
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  color: var(--navy);
+}
+
+.sug-list button.is-on,
+.sug-list button:hover {
+  background: var(--blue);
+  color: var(--white);
+}
+
+.sug-list em {
+  font-style: normal;
+  color: var(--muted);
+  flex: 0 0 auto;
+}
+
+.sug-list button.is-on em,
+.sug-list button:hover em {
+  color: var(--white);
+}

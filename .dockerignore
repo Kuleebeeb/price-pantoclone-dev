@@ -1,0 +1,11 @@
+# The build context is this whole directory now (the API image builds the web
+# app in a stage of its own), so what must NOT travel to the daemon is spelled
+# out here. Without it every build ships node_modules and a 13 MB installer.
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+server/releases
+server/backups
+.git
+*.log

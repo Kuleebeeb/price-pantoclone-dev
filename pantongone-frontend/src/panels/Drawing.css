@@ -1,0 +1,94 @@
+/* The drawing tab beyond Desk.css: the four-button row, its own status line,
+ * the not-issued number box and the register search row. */
+
+.dw-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 5px 8px 0;
+}
+
+.dw-bar button {
+  font: inherit;
+  padding: 6px 12px;
+  border: 1px solid #9e9a91;
+  background: #dcdad5;
+  color: #000;
+  cursor: pointer;
+}
+
+.dw-bar button:hover {
+  background: #eeebe7;
+}
+
+@media (max-width: 800px) {
+  .dw-bar {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.dw-status {
+  margin: 6px 8px 0;
+  background: #fff;
+  border: 1px solid #9e9a91;
+  padding: 6px 10px;
+}
+
+/* ResultName.TLabel: the issued number on its sunken chip (app.py:1945-1952). */
+.dw-docno {
+  display: block;
+  font: inherit;
+  padding: 5px 7px;
+  border: 1px solid #9e9a91;
+  background: #f5f9fc;
+  color: #344054;
+}
+
+/* The two-line dimension captions carry a real newline. */
+.dw-label {
+  white-space: pre-line;
+}
+
+.dw-notes {
+  margin-top: 6px;
+}
+
+.dw-notes textarea {
+  font: inherit;
+  border: 1px solid #9e9a91;
+  padding: 5px 7px;
+  width: 100%;
+  resize: vertical;
+}
+
+.dw-search {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.dw-search input {
+  font: inherit;
+  flex: 1 1 240px;
+  padding: 5px 7px;
+  border: 1px solid #9e9a91;
+}
+
+.dw-search button {
+  font: inherit;
+  padding: 5px 12px;
+  border: 1px solid #9e9a91;
+  background: #dcdad5;
+  color: #000;
+  cursor: pointer;
+}
+
+.dw-search button:hover {
+  background: #eeebe7;
+}
+
+.dw-register {
+  max-height: 240px;
+  overflow: auto;
+}

@@ -1,0 +1,91 @@
+# May chu cua chuong trinh tinh gia (ban .exe cua CEO).
+#
+# DUNG MOT MINH. Truoc 27-08-2026 no chay ghep vao mang cua PacOs va dung chung
+# may chu Postgres; nay tach han - Postgres rieng, mang rieng, volume rieng.
+# PacOs sap hay khong khong lien quan toi no nua, va nguoc lai.
+
+name: thaiplastic
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 512m
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pricing}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?can dat POSTGRES_PASSWORD trong .env}
+      POSTGRES_DB: ${POSTGRES_DB:-pricing}
+      # Phai khop voi api. Container mac dinh chay UTC, va khi do mot
+      # CURRENT_DATE tran co nghia la hom qua suot nua ngay lam viec o Bangkok -
+      # roi so QT-YYYYMMDD cap ra se mang sai ngay.
+      TZ: ${TZ:-Asia/Bangkok}
+      PGTZ: ${TZ:-Asia/Bangkok}
+    ports:
+      # Chi loopback. Khong bao gio 0.0.0.0 - chi nginx duoc ra ngoai.
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - pricing-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pricing} -d ${POSTGRES_DB:-pricing}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  api:
+    build:
+      # Mot buoc len, vi anh man hinh nam o ../pantongone-frontend va Docker
+      # khong doc duoc gi ngoai context. .dockerignore o thu muc cha giu
+      # node_modules va thu muc releases 13 MB o ngoai.
+      context: ..
+      dockerfile: server/Dockerfile
+    image: thaiplastic-api:latest
+    restart: unless-stopped
+    mem_limit: 384m
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pricing}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-pricing}
+      TZ: ${TZ:-Asia/Bangkok}
+      # Ky token dang nhap. Doi chuoi nay la dang xuat tat ca - dung de thu hoi
+      # moi phien khi lo mat khau ai do.
+      AUTH_SECRET: ${AUTH_SECRET:?can dat AUTH_SECRET trong .env}
+      # Tai khoan dau tien, doc MOT LAN luc khoi dong. Khong co duong tu dang ky.
+      BOOTSTRAP_EMAIL: ${BOOTSTRAP_EMAIL:-}
+      BOOTSTRAP_PASSWORD: ${BOOTSTRAP_PASSWORD:-}
+      BOOTSTRAP_NAME: ${BOOTSTRAP_NAME:-Administrator}
+      # Ai kiem tra mat khau. 'local' = bang users cua chinh may chu nay.
+      # 'pacos' = gui email + mat khau sang PacOs o PACOS_URL; chi tai khoan
+      # PacOs co quyen quotations.view_cost_breakdown moi vao duoc. Gia tri
+      # sai, hoac 'pacos' ma thieu PACOS_URL, thi api KHONG khoi dong - co y,
+      # khong am tham lui ve mat khau local.
+      AUTH_MODE: ${AUTH_MODE:-local}
+      PACOS_URL: ${PACOS_URL:-}
+      # Khoa chung voi PacOs (PANTONGONE_BRIDGE_KEY ben do), >= 32 ky tu. Co
+      # khoa = tab lich su co nut gui gia sang PacOs va danh sach khach hang
+      # duoc soi guong tu PacOs. Khong co = khong co nut, khong co gi khac doi.
+      PACOS_BRIDGE_KEY: ${PACOS_BRIDGE_KEY:-}
+    ports:
+      - "127.0.0.1:${API_PORT:-8100}:8100"
+    volumes:
+      # Mounted rather than baked into the image: publishing a new build should
+      # be copying one file onto the server, not rebuilding and restarting the
+      # thing everybody is signed in to. Read-only - the API serves these, it
+      # never writes them.
+      - ./releases:/srv/app/releases:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8100/api/health', timeout=4).status==200 else 1)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  pricing-data:

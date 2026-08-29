@@ -1,0 +1,278 @@
+/* The history tab beyond Desk.css: the filter row, the fixed-height table
+ * (the desktop pins it at 900x420 and lets it scroll inside, app.py:2520),
+ * the five-button row, and the two windows. */
+
+.hx-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: flex-start;
+}
+
+.hx-filters .desk-box {
+  flex: 0 1 170px;
+}
+
+.hx-filters .hx-customer {
+  flex: 1 1 220px;
+}
+
+.hx-searchrow {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 10px 0 0;
+}
+
+.hx-searchrow button {
+  font: inherit;
+  padding: 5px 12px;
+  border: 1px solid #9e9a91;
+  background: #dcdad5;
+  color: #000;
+  cursor: pointer;
+}
+
+.hx-searchrow button:hover {
+  background: #eeebe7;
+}
+
+/* The desktop's table keeps its own height and scrolls both ways inside. */
+.hx-tablewrap {
+  max-height: 420px;
+  overflow: auto;
+}
+
+.hx-table {
+  table-layout: fixed;
+}
+
+.hx-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hx-table tbody tr {
+  cursor: default;
+}
+
+.hx-table tbody tr.is-selected td {
+  background: var(--blue);
+  color: #fff;
+}
+
+.hx-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.hx-actions button {
+  font: inherit;
+  padding: 5px 12px;
+  border: 1px solid #9e9a91;
+  background: #dcdad5;
+  color: #000;
+  cursor: pointer;
+}
+
+.hx-actions button:hover:not(:disabled) {
+  background: #eeebe7;
+}
+
+.hx-actions button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.hx-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+/* The Details (760x650) and Related (1080x480) windows, as centred dialogs. */
+.hx-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(650px, calc(100vh - 32px));
+  overflow: auto;
+  border: 1px solid #9e9a91;
+  background: #fff;
+  padding: 18px;
+  z-index: 50;
+  box-shadow: 0 6px 30px rgba(22, 50, 79, 0.35);
+}
+
+.hx-dialog.is-wide {
+  width: min(1080px, calc(100vw - 32px));
+  max-height: min(560px, calc(100vh - 32px));
+}
+
+.hx-dialog h3 {
+  margin: 0 0 10px;
+  font-size: var(--fs-lg);
+  color: var(--navy);
+}
+
+.hx-details {
+  margin: 0;
+  font-family: var(--font);
+  font-size: var(--fs);
+  white-space: pre-wrap;
+  color: #1d2939;
+}
+
+.hx-warn {
+  margin: 0 0 4px;
+  font-weight: 700;
+  color: #9a6700;
+  font-size: var(--fs-sm);
+}
+
+.hx-close {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.hx-close button {
+  font: inherit;
+  padding: 5px 14px;
+  border: 1px solid #9e9a91;
+  background: #dcdad5;
+  cursor: pointer;
+}
+
+/* THE FOLDER VIEW. Customer ▸ product ▸ quotes, drawn like a file tree so
+   that the shape people already know from their desktop carries the book.
+   Same clam buttons and table classes as the flat view - only the nesting is
+   new. */
+
+.hx-viewrow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 10px 0 0;
+}
+
+.hx-viewrow button {
+  font: inherit;
+  padding: 5px 12px;
+  border: 1px solid #9e9a91;
+  background: #dcdad5;
+  color: #000;
+  cursor: pointer;
+}
+
+.hx-viewrow button.is-on {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+}
+
+.hx-viewrow .hx-hint {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  margin-left: 8px;
+}
+
+.hx-tree {
+  max-height: 520px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  background: var(--white);
+  margin-top: 8px;
+}
+
+.hx-tree table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+
+.hx-tree thead th {
+  position: sticky;
+  top: 0;
+  background: #dbe7f2;
+  color: var(--navy);
+  text-align: left;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--line);
+  font-weight: 600;
+}
+
+.hx-tree td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hx-tree td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* a folder row: the caret is the affordance, the whole row is the target */
+.hx-tree tr.folder {
+  cursor: pointer;
+}
+
+.hx-tree tr.folder:hover td {
+  background: #eef4f8;
+}
+
+.hx-tree tr.folder.is-open td {
+  background: #eaf3fb;
+}
+
+.hx-tree .caret {
+  display: inline-block;
+  width: 14px;
+  color: var(--muted);
+}
+
+.hx-tree tr.level-1 td:first-child {
+  padding-left: 26px;
+}
+
+/* the leaf table (the fifteen desktop columns) sits inside its product folder */
+.hx-tree tr.leaves > td {
+  padding: 0 0 0 40px;
+  background: #fbfaf7;
+}
+
+.hx-tree tr.leaves .desk-tablewrap {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.hx-tree tr.leaves .hx-table tbody tr {
+  cursor: pointer;
+}
+
+.hx-tree .hx-empty {
+  color: var(--muted);
+  padding: 8px;
+}
+
+/* The tick column for PacOs, and the button that sends what was ticked. */
+.hx-pick {
+  text-align: center;
+}
+
+.hx-pick input {
+  margin: 0;
+  cursor: pointer;
+}
+
+.hx-pacos {
+  font-weight: 600;
+}
