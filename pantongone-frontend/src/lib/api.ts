@@ -175,7 +175,7 @@ export type ButtonKey =
   | 'sync' | 'server' | 'use_existing' | 'more_details' | 'hide_details'
   | 'attach' | 'qc_toggle'
 
-export type TabKey = 'pricing' | 'planning' | 'drawing' | 'history'
+export type TabKey = 'pricing' | 'sample' | 'drawing' | 'planning' | 'coa' | 'history'
 
 export type PriceBoxKey =
   | 'calculated' | 'final_piece' | 'kg_when_selling_by_kg' | 'kg_when_selling_by_piece'
@@ -375,19 +375,62 @@ export const saveCoa = (body: CoaSave) => request<{ row: CoaRecord }>('/api/coa'
 export const coaPrintHtml = (id: number) => request<{ html: string }>(`/api/coa/${id}/print`)
 export const deleteCoa = (id: number) => request<{ deleted: number }>(`/api/coa/${id}`, { method: 'DELETE' })
 
-export type SampleSource = CoaSource & { product_key:string; gusset_mm:number; tolerance_width_mm:number; tolerance_length_mm:number; tolerance_thickness_mm:number;
-  tolerance_gusset_left_mm?:number; tolerance_gusset_right_mm?:number;
-  width_original?:{value:number;unit:string}; length_original?:{value:number;unit:string}; gusset_original?:{value:number;unit:string}; thickness_original?:{value:number;unit:string} }
-export type SampleMeasurement = { width:number|null; length:number|null; thickness:number|null; gusset_left:number|null; gusset_right:number|null }
-export type SampleInspectionSave = { id?:number; quote_ref:string; inspection_date:string; tolerance_width_mm:number; tolerance_length_mm:number;
-  tolerance_thickness_mm:number; tolerance_gusset_left_mm:number; tolerance_gusset_right_mm:number; measurements:SampleMeasurement[];
-  remarks:string; checked_by:string; approved_by:string }
-export type SampleInspectionRecord = Record<string, unknown> & { id:number; report_no:string; quote_ref:string; customer:string; product:string; overall_result:string; results_json:SampleMeasurement[] }
-export const sampleSources = (q='') => request<{rows:SampleSource[]}>(`/api/sample-inspections/sources${tail({q})}`)
-export const listSampleInspections = () => request<{rows:SampleInspectionRecord[]}>('/api/sample-inspections')
-export const saveSampleInspection = (body:SampleInspectionSave) => request<{row:SampleInspectionRecord}>('/api/sample-inspections',{method:'POST',body:JSON.stringify(body)})
-export const deleteSampleInspection = (id:number) => request<{deleted:number}>(`/api/sample-inspections/${id}`,{method:'DELETE'})
-export const samplePrintHtml = (id:number) => request<{html:string}>(`/api/sample-inspections/${id}/print`)
+export type SampleSource = CoaSource & {
+  product_key: string
+  gusset_mm: number
+  tolerance_width_mm: number
+  tolerance_length_mm: number
+  tolerance_thickness_mm: number
+  tolerance_gusset_left_mm?: number
+  tolerance_gusset_right_mm?: number
+  width_original?: { value: number; unit: string }
+  length_original?: { value: number; unit: string }
+  gusset_original?: { value: number; unit: string }
+  thickness_original?: { value: number; unit: string }
+}
+export type SampleMeasurement = {
+  width: number | null
+  length: number | null
+  thickness: number | null
+  gusset_left: number | null
+  gusset_right: number | null
+}
+export type SampleInspectionSave = {
+  id?: number
+  quote_ref: string
+  inspection_date: string
+  tolerance_width_mm: number
+  tolerance_length_mm: number
+  tolerance_thickness_mm: number
+  tolerance_gusset_left_mm: number
+  tolerance_gusset_right_mm: number
+  measurements: SampleMeasurement[]
+  remarks: string
+  checked_by: string
+  approved_by: string
+}
+export type SampleInspectionRecord = Record<string, unknown> & {
+  id: number
+  report_no: string
+  quote_ref: string
+  customer: string
+  product: string
+  overall_result: string
+  results_json: SampleMeasurement[]
+}
+export const sampleSources = (q = '') =>
+  request<{ rows: SampleSource[] }>(`/api/sample-inspections/sources${tail({ q })}`)
+export const listSampleInspections = () =>
+  request<{ rows: SampleInspectionRecord[] }>('/api/sample-inspections')
+export const saveSampleInspection = (body: SampleInspectionSave) =>
+  request<{ row: SampleInspectionRecord }>('/api/sample-inspections', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+export const deleteSampleInspection = (id: number) =>
+  request<{ deleted: number }>(`/api/sample-inspections/${id}`, { method: 'DELETE' })
+export const samplePrintHtml = (id: number) =>
+  request<{ html: string }>(`/api/sample-inspections/${id}/print`)
 
 export type SearchParams = {
   customer?: string

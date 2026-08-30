@@ -14,6 +14,7 @@ import {
   type Meta,
   type Session,
   type SourceRow,
+  type TabKey,
 } from '@/lib/api'
 import type { CalcRequest, CalcResponse, Form, ProductKey } from '@/lib/calc'
 import { History } from '@/panels/History'
@@ -44,7 +45,7 @@ import './Desk.css'
  * itself.
  */
 
-type Tab = 'pricing' | 'sample' | 'planning' | 'drawing' | 'coa' | 'history'
+type Tab = TabKey
 
 /* Written down ONCE, and they are the desktop's own starting values
  * (app.py DEFAULTS, 67-73; roof/mesh at 1777-1796). */
@@ -694,7 +695,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
             className={tab === id ? 'is-on' : ''}
             onClick={() => setTab(id)}
           >
-            {id === 'coa' ? 'COA / Quality' : id === 'sample' ? 'Sample Inspection' : labels.tabs[id]}
+            {labels.tabs[id]}
           </button>
         ))}
       </div>

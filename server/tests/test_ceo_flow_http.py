@@ -107,9 +107,10 @@ check("deleted draft is gone from the list", s == 200 and all(x.get("id") != dra
 
 s, r = call("POST", "/api/coa", {"quote_ref": QT, "status": "FINAL", "po_no": "PO-2026-001", "lot_no": "L-002",
                                  "issue_date": "2026-08-30", "inspection_date": "2026-08-30", "quantity": "5,000 pcs",
-                                 "actual_width_mm": 101.6, "actual_length_mm": 304.8, "actual_thickness_mm": 0.16,
+                                 "actual_width_mm": 101.6, "actual_length_mm": 304.8, "actual_thickness_mm": 0.17,
                                  "result": "PASS", "checked_by": "QC", "approved_by": "CEO"})
 final = r.get("row", {}) if isinstance(r, dict) else {}
+check("COA thickness exactly on the limit (0.17 vs 0.16 ± 0.01) keeps PASS", final.get("result") == "PASS", final.get("result"))
 check("COA FINAL gets COA-YYYYMM-NNNN", s == 200 and str(final.get("certificate_no", "")).startswith("COA-202608-"),
       (s, final.get("certificate_no"), r if s != 200 else ""))
 s, r = call("DELETE", f"/api/coa/{final.get('id')}")
@@ -144,7 +145,14 @@ s, r = call("POST", "/api/sample-inspections", {
     "tolerance_thickness_mm": 0.01, "measurements": [{"width": 130, "length": 304.8, "thickness": 0.16}], "checked_by": "QC"})
 failed_id = r.get("row", {}).get("id") if isinstance(r, dict) else None
 check("out-of-tolerance width -> FAIL", s == 200 and r.get("row", {}).get("overall_result") == "FAIL", (s, r.get("row", {}).get("overall_result")))
-for rid in (sir.get("id"), failed_id):
+# 0.17 - 0.16 is 0.010000000000000009 in floating point; the micrometer says it is on the limit
+s, r = call("POST", "/api/sample-inspections", {
+    "quote_ref": QT, "inspection_date": "2026-08-30", "tolerance_width_mm": 10, "tolerance_length_mm": 10,
+    "tolerance_thickness_mm": 0.01, "measurements": [{"width": 111.6, "length": 294.8, "thickness": 0.17}], "checked_by": "QC"})
+edge_id = r.get("row", {}).get("id") if isinstance(r, dict) else None
+check("sample exactly on every limit -> PASS (no floating-point FAIL)",
+      s == 200 and r.get("row", {}).get("overall_result") == "PASS", (s, r.get("row", {}).get("overall_result")))
+for rid in (sir.get("id"), failed_id, edge_id):
     s, r = call("DELETE", f"/api/sample-inspections/{rid}")
     check(f"sample inspection {rid} delete", s == 200, (s, r))
 

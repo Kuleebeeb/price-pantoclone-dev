@@ -1,22 +1,387 @@
-import { useEffect,useState } from 'react'
-import { deleteSampleInspection,listSampleInspections,samplePrintHtml,sampleSources,saveSampleInspection,type SampleInspectionRecord,type SampleInspectionSave,type SampleMeasurement,type SampleSource } from '@/lib/api'
+import { useEffect, useState } from 'react'
+import {
+  deleteSampleInspection,
+  listSampleInspections,
+  samplePrintHtml,
+  sampleSources,
+  saveSampleInspection,
+  type SampleInspectionRecord,
+  type SampleInspectionSave,
+  type SampleMeasurement,
+  type SampleSource,
+} from '@/lib/api'
+import { judge, limitText, mmPerUnit } from '@/lib/inspection'
 import './SampleInspection.css'
-const measurement=():SampleMeasurement=>({width:null,length:null,thickness:null,gusset_left:null,gusset_right:null})
-const blank=():SampleInspectionSave=>({quote_ref:'',inspection_date:new Date().toISOString().slice(0,10),tolerance_width_mm:0,tolerance_length_mm:0,tolerance_thickness_mm:0,tolerance_gusset_left_mm:0,tolerance_gusset_right_mm:0,measurements:[measurement(),measurement(),measurement()],remarks:'',checked_by:'',approved_by:''})
-const n=(v:string)=>v===''?null:Number(v), s=(v:unknown)=>v==null?'':String(v)
-export function SampleInspection({ onBack }: { onBack?: () => void } = {}){const [form,setForm]=useState(blank),[source,setSource]=useState<SampleSource|null>(null),[q,setQ]=useState(''),[sources,setSources]=useState<SampleSource[]>([]),[rows,setRows]=useState<SampleInspectionRecord[]>([]),[message,setMessage]=useState('')
- const load=()=>listSampleInspections().then(x=>setRows(x.rows));useEffect(()=>{void load()},[]);useEffect(()=>{const t=setTimeout(()=>sampleSources(q).then(x=>setSources(x.rows)),250);return()=>clearTimeout(t)},[q])
- const patch=(p:Partial<SampleInspectionSave>)=>setForm(f=>({...f,...p}));const pick=(x:SampleSource)=>{setSource(x);setQ(x.line);patch({quote_ref:x.quote_ref,tolerance_width_mm:x.tolerance_width_mm,tolerance_length_mm:x.tolerance_length_mm,tolerance_thickness_mm:x.tolerance_thickness_mm,tolerance_gusset_left_mm:x.tolerance_gusset_left_mm??0,tolerance_gusset_right_mm:x.tolerance_gusset_right_mm??0})}
- const actual=(i:number,key:keyof SampleMeasurement,v:string)=>{const measurements=form.measurements.map((m,j)=>j===i?{...m,[key]:n(v)}:m);patch({measurements})}
- const limit=(nom:number,tol:number)=>`${nom-tol} – ${nom+tol}`;const pass=(v:number|null,nom:number,tol:number)=>v==null?'WAITING':Math.abs(v-nom)<=tol?'PASS':'FAIL'
- const save=async()=>{try{const x=await saveSampleInspection(form);patch({id:x.row.id});setMessage(`บันทึกแล้ว ${x.row.report_no}`);await load()}catch(e){alert(e instanceof Error?e.message:String(e))}}
- const print=async(id=form.id)=>{if(!id){alert('กรุณาบันทึกก่อนพิมพ์');return}const x=await samplePrintHtml(id);const w=window.open('','_blank');if(w){w.document.write(x.html);w.document.close()}}
- const edit=(r:SampleInspectionRecord)=>{const results=(r.results_json as unknown as SampleMeasurement[]).map(x=>({width:x.width,length:x.length,thickness:x.thickness,gusset_left:x.gusset_left,gusset_right:x.gusset_right}));setForm({id:r.id,quote_ref:r.quote_ref,inspection_date:s(r.inspection_date),tolerance_width_mm:Number(r.tolerance_width_mm),tolerance_length_mm:Number(r.tolerance_length_mm),tolerance_thickness_mm:Number(r.tolerance_thickness_mm),tolerance_gusset_left_mm:Number(r.tolerance_gusset_left_mm),tolerance_gusset_right_mm:Number(r.tolerance_gusset_right_mm),measurements:[...results,...Array(Math.max(0,3-results.length)).fill(0).map(measurement)].slice(0,3),remarks:s(r.remarks),checked_by:s(r.checked_by),approved_by:s(r.approved_by)});setSource({quote_ref:r.quote_ref,customer:r.customer,customer_code:s(r.customer_code),part_no:s(r.part_no),product:r.product,size_text:'',width_mm:Number(r.width_mm),length_mm:Number(r.length_mm),thickness_mm:Number(r.thickness_mm),thickness_mode:s(r.thickness_mode) as 'side'|'pair',line:r.quote_ref,product_key:s(r.product_key),gusset_mm:Number(r.gusset_mm),tolerance_width_mm:Number(r.tolerance_width_mm),tolerance_length_mm:Number(r.tolerance_length_mm),tolerance_thickness_mm:Number(r.tolerance_thickness_mm)});setQ(r.quote_ref);setMessage('เปิดเพื่อแก้ไขแล้ว')}
- const remove=async(id:number)=>{if(!confirm('ลบรายงานนี้หรือไม่?'))return;await deleteSampleInspection(id);if(form.id===id){setForm(blank());setSource(null)}await load()}
- const factor=(unit:string,thickness=false)=>thickness?({'มม.':1,'ซม.':10,'นิ้ว':25.4,'ไมครอน':.001}[unit]??1):({'มม.':1,'ซม.':10,'นิ้ว':25.4,'เมตร':1000}[unit]??1)
- const chars=source?[['Width','width',source.width_mm,form.tolerance_width_mm,source.width_original??{value:source.width_mm,unit:'มม.'},false],['Length','length',source.length_mm,form.tolerance_length_mm,source.length_original??{value:source.length_mm,unit:'มม.'},false],['Thickness','thickness',source.thickness_mm,form.tolerance_thickness_mm,source.thickness_original??{value:source.thickness_mm,unit:'มม.'},true],...(source.product_key==='gusset'?[['Gusset Left','gusset_left',source.gusset_mm,form.tolerance_gusset_left_mm,source.gusset_original??{value:source.gusset_mm,unit:'มม.'},false],['Gusset Right','gusset_right',source.gusset_mm,form.tolerance_gusset_right_mm,source.gusset_original??{value:source.gusset_mm,unit:'มม.'},false]]:[])]:[]
- return <section className="sample"><div className="sample-head"><div><h2>Sample Inspection Report</h2><p>รายงานผลการตรวจสอบงานตัวอย่างก่อนส่งให้ลูกค้า</p></div><div><button onClick={()=>{setForm(blank());setSource(null);setQ('')}}>New</button><button className="desk-accent" onClick={save}>Save</button><button onClick={()=>print()}>Print</button><button onClick={()=>onBack?onBack():history.back()}>Back</button></div></div>
- <div className="sample-card"><h3>เลือกข้อมูลจากใบเสนอราคา</h3><input className="wide" value={q} onChange={e=>setQ(e.target.value)} placeholder="ค้นหา QT / ลูกค้า / Part No."/><div className="choices">{sources.slice(0,6).map(x=><button key={x.quote_ref} onClick={()=>pick(x)}>{x.line}</button>)}</div>{source&&<p><b>{source.customer}</b> • {source.product} • Part {source.part_no}</p>}</div>
- {source&&<div className="sample-card"><p><b>ลักษณะงานพิเศษต้นทาง:</b> {source.special_requirements||'—'}</p><div className="tol"><label>Date<input type="date" value={form.inspection_date} onChange={e=>patch({inspection_date:e.target.value})}/></label><label>Width ± mm<input value={form.tolerance_width_mm} readOnly/></label><label>Length ± mm<input value={form.tolerance_length_mm} readOnly/></label><label>Thickness ± mm<input value={form.tolerance_thickness_mm} readOnly/></label>{source.product_key==='gusset'&&<><label>Left Gusset ± mm<input value={form.tolerance_gusset_left_mm} readOnly/></label><label>Right Gusset ± mm<input value={form.tolerance_gusset_right_mm} readOnly/></label></>}</div>
- <table><thead><tr><th>Characteristic</th><th>Nominal (Quoted → mm)</th><th>Specification limits (Quoted → mm)</th><th>Sample 1 (mm)</th><th>Sample 2 (mm)</th><th>Sample 3 (mm)</th></tr></thead><tbody>{chars.map(([name,key,nom,tol,original,isThickness])=>{const o=original as {value:number;unit:string};const ot=Number(tol)/factor(o.unit,Boolean(isThickness));return <tr key={String(key)}><td>{String(name)}</td><td>{o.value} {o.unit} → {Number(nom)} mm</td><td>{limit(o.value,ot)} {o.unit}<br/>→ {limit(Number(nom),Number(tol))} mm</td>{form.measurements.map((m,i)=>{const v=m[key as keyof SampleMeasurement] as number|null;return <td key={i}><input type="number" step="0.001" value={s(v)} onChange={e=>actual(i,key as keyof SampleMeasurement,e.target.value)}/><span className={pass(v,Number(nom),Number(tol)).toLowerCase()}>{pass(v,Number(nom),Number(tol))}</span></td>})}</tr>})}</tbody></table><div className="tol"><label>Remarks<input value={form.remarks} onChange={e=>patch({remarks:e.target.value})}/></label><label>Checked by<input value={form.checked_by} onChange={e=>patch({checked_by:e.target.value})}/></label><label>Approved by<input value={form.approved_by} onChange={e=>patch({approved_by:e.target.value})}/></label></div><p className="saved">{message}</p></div>}
- <div className="sample-card"><h3>รายงานที่บันทึกแล้ว</h3><table><thead><tr><th>Report No.</th><th>Customer / Product</th><th>Result</th><th>Actions</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td>{r.report_no}</td><td>{r.customer}<br/>{r.product}</td><td>{r.overall_result||'WAITING'}</td><td><button onClick={()=>edit(r)}>Edit</button> <button onClick={()=>print(r.id)}>Print</button> <button className="danger" onClick={()=>remove(r.id)}>Delete</button></td></tr>)}</tbody></table></div></section>}
+
+const measurement = (): SampleMeasurement => ({
+  width: null,
+  length: null,
+  thickness: null,
+  gusset_left: null,
+  gusset_right: null,
+})
+const blank = (): SampleInspectionSave => ({
+  quote_ref: '',
+  inspection_date: new Date().toISOString().slice(0, 10),
+  tolerance_width_mm: 0,
+  tolerance_length_mm: 0,
+  tolerance_thickness_mm: 0,
+  tolerance_gusset_left_mm: 0,
+  tolerance_gusset_right_mm: 0,
+  measurements: [measurement(), measurement(), measurement()],
+  remarks: '',
+  checked_by: '',
+  approved_by: '',
+})
+const n = (v: string) => (v === '' ? null : Number(v)),
+  s = (v: unknown) => (v == null ? '' : String(v))
+export function SampleInspection({ onBack }: { onBack?: () => void } = {}) {
+  const [form, setForm] = useState(blank),
+    [source, setSource] = useState<SampleSource | null>(null),
+    [q, setQ] = useState(''),
+    [sources, setSources] = useState<SampleSource[]>([]),
+    [rows, setRows] = useState<SampleInspectionRecord[]>([]),
+    [message, setMessage] = useState('')
+  const load = () => listSampleInspections().then((x) => setRows(x.rows))
+  useEffect(() => {
+    void load()
+  }, [])
+  useEffect(() => {
+    const t = setTimeout(() => sampleSources(q).then((x) => setSources(x.rows)), 250)
+    return () => clearTimeout(t)
+  }, [q])
+  const patch = (p: Partial<SampleInspectionSave>) => setForm((f) => ({ ...f, ...p }))
+  const pick = (x: SampleSource) => {
+    setSource(x)
+    setQ(x.line)
+    patch({
+      quote_ref: x.quote_ref,
+      tolerance_width_mm: x.tolerance_width_mm,
+      tolerance_length_mm: x.tolerance_length_mm,
+      tolerance_thickness_mm: x.tolerance_thickness_mm,
+      tolerance_gusset_left_mm: x.tolerance_gusset_left_mm ?? 0,
+      tolerance_gusset_right_mm: x.tolerance_gusset_right_mm ?? 0,
+    })
+  }
+  const actual = (i: number, key: keyof SampleMeasurement, v: string) => {
+    const measurements = form.measurements.map((m, j) => (j === i ? { ...m, [key]: n(v) } : m))
+    patch({ measurements })
+  }
+  const save = async () => {
+    try {
+      const x = await saveSampleInspection(form)
+      patch({ id: x.row.id })
+      setMessage(`บันทึกแล้ว ${x.row.report_no}`)
+      await load()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : String(e))
+    }
+  }
+  const print = async (id = form.id) => {
+    if (!id) {
+      alert('กรุณาบันทึกก่อนพิมพ์')
+      return
+    }
+    const x = await samplePrintHtml(id)
+    const w = window.open('', '_blank')
+    if (w) {
+      w.document.write(x.html)
+      w.document.close()
+    }
+  }
+  const edit = (r: SampleInspectionRecord) => {
+    const results = (r.results_json as unknown as SampleMeasurement[]).map((x) => ({
+      width: x.width,
+      length: x.length,
+      thickness: x.thickness,
+      gusset_left: x.gusset_left,
+      gusset_right: x.gusset_right,
+    }))
+    setForm({
+      id: r.id,
+      quote_ref: r.quote_ref,
+      inspection_date: s(r.inspection_date),
+      tolerance_width_mm: Number(r.tolerance_width_mm),
+      tolerance_length_mm: Number(r.tolerance_length_mm),
+      tolerance_thickness_mm: Number(r.tolerance_thickness_mm),
+      tolerance_gusset_left_mm: Number(r.tolerance_gusset_left_mm),
+      tolerance_gusset_right_mm: Number(r.tolerance_gusset_right_mm),
+      measurements: [
+        ...results,
+        ...Array(Math.max(0, 3 - results.length))
+          .fill(0)
+          .map(measurement),
+      ].slice(0, 3),
+      remarks: s(r.remarks),
+      checked_by: s(r.checked_by),
+      approved_by: s(r.approved_by),
+    })
+    setSource({
+      quote_ref: r.quote_ref,
+      customer: r.customer,
+      customer_code: s(r.customer_code),
+      part_no: s(r.part_no),
+      product: r.product,
+      size_text: '',
+      width_mm: Number(r.width_mm),
+      length_mm: Number(r.length_mm),
+      thickness_mm: Number(r.thickness_mm),
+      thickness_mode: s(r.thickness_mode) as 'side' | 'pair',
+      line: r.quote_ref,
+      product_key: s(r.product_key),
+      gusset_mm: Number(r.gusset_mm),
+      tolerance_width_mm: Number(r.tolerance_width_mm),
+      tolerance_length_mm: Number(r.tolerance_length_mm),
+      tolerance_thickness_mm: Number(r.tolerance_thickness_mm),
+    })
+    setQ(r.quote_ref)
+    setMessage('เปิดเพื่อแก้ไขแล้ว')
+  }
+  const remove = async (id: number) => {
+    if (!confirm('ลบรายงานนี้หรือไม่?')) return
+    await deleteSampleInspection(id)
+    if (form.id === id) {
+      setForm(blank())
+      setSource(null)
+    }
+    await load()
+  }
+  const chars = source
+    ? [
+        [
+          'Width',
+          'width',
+          source.width_mm,
+          form.tolerance_width_mm,
+          source.width_original ?? { value: source.width_mm, unit: 'มม.' },
+          false,
+        ],
+        [
+          'Length',
+          'length',
+          source.length_mm,
+          form.tolerance_length_mm,
+          source.length_original ?? { value: source.length_mm, unit: 'มม.' },
+          false,
+        ],
+        [
+          'Thickness',
+          'thickness',
+          source.thickness_mm,
+          form.tolerance_thickness_mm,
+          source.thickness_original ?? { value: source.thickness_mm, unit: 'มม.' },
+          true,
+        ],
+        ...(source.product_key === 'gusset'
+          ? [
+              [
+                'Gusset Left',
+                'gusset_left',
+                source.gusset_mm,
+                form.tolerance_gusset_left_mm,
+                source.gusset_original ?? { value: source.gusset_mm, unit: 'มม.' },
+                false,
+              ],
+              [
+                'Gusset Right',
+                'gusset_right',
+                source.gusset_mm,
+                form.tolerance_gusset_right_mm,
+                source.gusset_original ?? { value: source.gusset_mm, unit: 'มม.' },
+                false,
+              ],
+            ]
+          : []),
+      ]
+    : []
+  return (
+    <section className="sample">
+      <div className="sample-head">
+        <div>
+          <h2>Sample Inspection Report</h2>
+          <p>รายงานผลการตรวจสอบงานตัวอย่างก่อนส่งให้ลูกค้า</p>
+        </div>
+        <div>
+          <button
+            onClick={() => {
+              setForm(blank())
+              setSource(null)
+              setQ('')
+            }}
+          >
+            New
+          </button>
+          <button className="desk-accent" onClick={save}>
+            Save
+          </button>
+          <button onClick={() => print()}>Print</button>
+          <button onClick={() => (onBack ? onBack() : history.back())}>Back</button>
+        </div>
+      </div>
+      <div className="sample-card">
+        <h3>เลือกข้อมูลจากใบเสนอราคา</h3>
+        <input
+          className="wide"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="ค้นหา QT / ลูกค้า / Part No."
+        />
+        <div className="choices">
+          {sources.slice(0, 6).map((x) => (
+            <button key={x.quote_ref} onClick={() => pick(x)}>
+              {x.line}
+            </button>
+          ))}
+        </div>
+        {source && (
+          <p>
+            <b>{source.customer}</b> • {source.product} • Part {source.part_no}
+          </p>
+        )}
+      </div>
+      {source && (
+        <div className="sample-card">
+          <p>
+            <b>ลักษณะงานพิเศษต้นทาง:</b> {source.special_requirements || '—'}
+          </p>
+          <div className="tol">
+            <label>
+              Date
+              <input
+                type="date"
+                value={form.inspection_date}
+                onChange={(e) => patch({ inspection_date: e.target.value })}
+              />
+            </label>
+            <label>
+              Width ± mm
+              <input value={form.tolerance_width_mm} readOnly />
+            </label>
+            <label>
+              Length ± mm
+              <input value={form.tolerance_length_mm} readOnly />
+            </label>
+            <label>
+              Thickness ± mm
+              <input value={form.tolerance_thickness_mm} readOnly />
+            </label>
+            {source.product_key === 'gusset' && (
+              <>
+                <label>
+                  Left Gusset ± mm
+                  <input value={form.tolerance_gusset_left_mm} readOnly />
+                </label>
+                <label>
+                  Right Gusset ± mm
+                  <input value={form.tolerance_gusset_right_mm} readOnly />
+                </label>
+              </>
+            )}
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Characteristic</th>
+                <th>Nominal (Quoted → mm)</th>
+                <th>Specification limits (Quoted → mm)</th>
+                <th>Sample 1 (mm)</th>
+                <th>Sample 2 (mm)</th>
+                <th>Sample 3 (mm)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {chars.map(([name, key, nom, tol, original, isThickness]) => {
+                const o = original as { value: number; unit: string }
+                const ot = Number(tol) / mmPerUnit(o.unit, Boolean(isThickness))
+                return (
+                  <tr key={String(key)}>
+                    <td>{String(name)}</td>
+                    <td>
+                      {o.value} {o.unit} → {Number(nom)} mm
+                    </td>
+                    <td>
+                      {limitText(o.value, ot)} {o.unit}
+                      <br />→ {limitText(Number(nom), Number(tol))} mm
+                    </td>
+                    {form.measurements.map((m, i) => {
+                      const v = m[key as keyof SampleMeasurement] as number | null
+                      return (
+                        <td key={i}>
+                          <input
+                            type="number"
+                            step="0.001"
+                            value={s(v)}
+                            onChange={(e) =>
+                              actual(i, key as keyof SampleMeasurement, e.target.value)
+                            }
+                          />
+                          <span className={judge(v, Number(nom), Number(tol)).toLowerCase()}>
+                            {judge(v, Number(nom), Number(tol))}
+                          </span>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          <div className="tol">
+            <label>
+              Remarks
+              <input value={form.remarks} onChange={(e) => patch({ remarks: e.target.value })} />
+            </label>
+            <label>
+              Checked by
+              <input
+                value={form.checked_by}
+                onChange={(e) => patch({ checked_by: e.target.value })}
+              />
+            </label>
+            <label>
+              Approved by
+              <input
+                value={form.approved_by}
+                onChange={(e) => patch({ approved_by: e.target.value })}
+              />
+            </label>
+          </div>
+          <p className="saved">{message}</p>
+        </div>
+      )}
+      <div className="sample-card">
+        <h3>รายงานที่บันทึกแล้ว</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Report No.</th>
+              <th>Customer / Product</th>
+              <th>Result</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td>{r.report_no}</td>
+                <td>
+                  {r.customer}
+                  <br />
+                  {r.product}
+                </td>
+                <td>{r.overall_result || 'WAITING'}</td>
+                <td>
+                  <button onClick={() => edit(r)}>Edit</button>{' '}
+                  <button onClick={() => print(r.id)}>Print</button>{' '}
+                  <button className="danger" onClick={() => remove(r.id)}>
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
