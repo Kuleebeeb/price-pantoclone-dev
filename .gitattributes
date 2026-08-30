@@ -1,0 +1,5 @@
+# Shell scripts run on Linux (deploy.sh on the server, ship.sh's ssh command):
+# a CRLF checkout on Windows turns "set -euo pipefail" into
+# "set: pipefail\r: invalid option name". Pin them to LF whatever
+# core.autocrlf says.
+*.sh text eol=lf
