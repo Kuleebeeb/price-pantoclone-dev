@@ -92,3 +92,24 @@
   max-height: 240px;
   overflow: auto;
 }
+.dw-quote-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 170px;
+  overflow: auto;
+  margin-top: 6px;
+}
+
+.dw-quote-list button {
+  font: inherit;
+  text-align: left;
+  padding: 7px 9px;
+  border: 1px solid #cdd7e1;
+  background: #f5f9fc;
+  color: var(--navy);
+  cursor: pointer;
+}
+
+.dw-quote-list button:hover {
+  background: #eaf3fb;
+}

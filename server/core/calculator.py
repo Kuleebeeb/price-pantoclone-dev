@@ -39,7 +39,9 @@ DEFAULT_WEIGHT_FORMULAS = {
     "flat": "width_cm * material_length_cm * 2 * (thickness_side_mm / 10) * density_g_cm3",
     "gusset": "(width_cm + gusset_cm) * material_length_cm * 2 * (thickness_side_mm / 10) * density_g_cm3",
     "roll": "width_cm * sold_length_m * 100 * 2 * (thickness_side_mm / 10) * density_g_cm3",
-    "opaque": "width_cm * length_cm * 2 * (thickness_side_mm / 10) * density_g_cm3",
+    # A plastic sheet is one physical layer. Its entered thickness is normally
+    # per side/sheet, so unlike a bag it must not be multiplied by two.
+    "opaque": "width_cm * length_cm * (thickness_side_mm / 10) * density_g_cm3",
     "cover": "roof_area_m2 * roof_gsm + mesh_area_m2 * mesh_gsm",
 }
 

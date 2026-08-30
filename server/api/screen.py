@@ -432,7 +432,7 @@ DRAWING = {
         "holes_dia": "ขนาดรูเจาะ Ø (มม.) / Hole Diameter",
         "label_w": "ลาเบลกว้าง (มม.) / Label Width",
         "label_h": "ลาเบลสูง (มม.) / Label Height",
-        "extra_notes": "หมายเหตุเพิ่มเติม บรรทัดละหนึ่งข้อ / Extra notes, one per line",
+        "extra_notes": "ลักษณะพิเศษที่ลูกค้าอนุมัติ บรรทัดละหนึ่งข้อ / Approved special characteristics, one per line",
     },
     "not_issued": "— ยังไม่ออกเลข / not issued —",
     "notes": {

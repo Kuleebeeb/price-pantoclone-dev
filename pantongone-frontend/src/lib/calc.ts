@@ -43,6 +43,12 @@ export type CalcRequest = {
   mesh_gsm: number
   weight_formula: string
   price_formula: string
+  tolerance_width: Measure
+  tolerance_length: Measure
+  tolerance_thickness: Measure
+  tolerance_gusset_left: Measure
+  tolerance_gusset_right: Measure
+  special_requirements: string
 }
 
 /** Every figure the screen prints, already formatted by the server - "12.345
@@ -123,6 +129,12 @@ export type Form = {
    *  with the formulas themselves (LAW P1). */
   weight_formula: string
   price_formula: string
+  tolerance_width: string
+  tolerance_length: string
+  tolerance_thickness: string
+  tolerance_gusset_left: string
+  tolerance_gusset_right: string
+  special_requirements: string
 }
 
 export type DrawingRequest = {

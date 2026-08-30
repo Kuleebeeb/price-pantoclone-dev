@@ -18,6 +18,8 @@ import {
 import type { CalcRequest, CalcResponse, Form, ProductKey } from '@/lib/calc'
 import { History } from '@/panels/History'
 import { Drawing } from '@/panels/Drawing'
+import { Coa } from '@/panels/Coa'
+import { SampleInspection } from '@/panels/SampleInspection'
 import { Formulas } from '@/panels/Formulas'
 import { Suggest } from '@/ui/Suggest'
 import './Desk.css'
@@ -42,7 +44,7 @@ import './Desk.css'
  * itself.
  */
 
-type Tab = 'pricing' | 'planning' | 'drawing' | 'history'
+type Tab = 'pricing' | 'sample' | 'planning' | 'drawing' | 'coa' | 'history'
 
 /* Written down ONCE, and they are the desktop's own starting values
  * (app.py DEFAULTS, 67-73; roof/mesh at 1777-1796). */
@@ -95,6 +97,8 @@ export function blank(meta: Meta | null): Form {
     mesh_gsm: DEFAULTS.mesh_gsm,
     weight_formula: '',
     price_formula: '',
+    tolerance_width: '', tolerance_length: '', tolerance_thickness: '',
+    tolerance_gusset_left: '', tolerance_gusset_right: '', special_requirements: '',
   }
 }
 
@@ -160,6 +164,12 @@ export function toRequest(form: Form, meta: Meta | null): CalcRequest {
      * beside the formulas themselves (LAW P1). */
     weight_formula: form.weight_formula,
     price_formula: form.price_formula || meta?.default_price_formula || '',
+    tolerance_width: { value: n(form.tolerance_width), unit: 'มม.' },
+    tolerance_length: { value: n(form.tolerance_length), unit: 'มม.' },
+    tolerance_thickness: { value: n(form.tolerance_thickness), unit: 'มม.' },
+    tolerance_gusset_left: { value: n(form.tolerance_gusset_left), unit: 'มม.' },
+    tolerance_gusset_right: { value: n(form.tolerance_gusset_right), unit: 'มม.' },
+    special_requirements: form.special_requirements,
   }
 }
 
@@ -196,6 +206,35 @@ type PlanningState = {
   quantity: string
   notes: string
   compare: string
+  productKey: string
+  sackQuantity: string
+  sackWeight: string
+  gramsPerItem: string
+  referenceGramsPerItem: string
+  itemsPerKg: string
+  adjustedItems: string
+  toleranceWidth: string
+  toleranceLength: string
+  toleranceThickness: string
+  toleranceGussetLeft: string
+  toleranceGussetRight: string
+  drawingDocNo: string
+  specialFeatures: string
+  salesProduct: string
+  salesPartNo: string
+  salesSize: string
+  salesWidth: string
+  salesLength: string
+  salesThickness: string
+  salesThicknessMode: string
+  saleBasis: 'piece' | 'kg'
+  packageStyle: 'ห่อ / Pack' | 'พับ / Fold'
+  smallPackQuantity: string
+  packageCountPerSack: string
+  quotedSmallPackQuantity: string
+  quotedPackageCountPerSack: string
+  packagingChoice: 'quoted' | 'new'
+  maximumSackWeight: string
 }
 
 const emptyPlanning: PlanningState = {
@@ -210,6 +249,13 @@ const emptyPlanning: PlanningState = {
   quantity: '',
   notes: '',
   compare: '',
+  productKey: '', sackQuantity: '', sackWeight: '', gramsPerItem: '', referenceGramsPerItem: '', itemsPerKg: '', adjustedItems: '',
+  toleranceWidth: '', toleranceLength: '', toleranceThickness: '', toleranceGussetLeft: '', toleranceGussetRight: '',
+  drawingDocNo: '', specialFeatures: '',
+  salesProduct: '', salesPartNo: '', salesSize: '', salesWidth: '', salesLength: '', salesThickness: '', salesThicknessMode: '',
+  saleBasis: 'piece', packageStyle: 'ห่อ / Pack', smallPackQuantity: '', packageCountPerSack: '',
+  quotedSmallPackQuantity: '', quotedPackageCountPerSack: '', packagingChoice: 'quoted',
+  maximumSackWeight: '',
 }
 
 function openSheet(html: string) {
@@ -451,6 +497,34 @@ export function Desk({ meta, session, onSignOut }: Props) {
         gusset: src.gusset,
         packaging: src.package,
         quantity: src.quantity,
+        productKey: src.product_key,
+        sackQuantity: src.sack_quantity,
+        sackWeight: src.sack_weight_kg,
+        gramsPerItem: src.grams_per_item,
+        referenceGramsPerItem: src.grams_per_item,
+        itemsPerKg: src.items_per_kg,
+        adjustedItems: src.adjusted_items,
+        toleranceWidth: src.tolerance_width_mm,
+        toleranceLength: src.tolerance_length_mm,
+        toleranceThickness: src.tolerance_thickness_mm,
+        toleranceGussetLeft: src.tolerance_gusset_left_mm,
+        toleranceGussetRight: src.tolerance_gusset_right_mm,
+        drawingDocNo: src.drawing_doc_no,
+        specialFeatures: src.special_features,
+        salesProduct: src.sales_product,
+        salesPartNo: src.sales_part_no,
+        salesSize: src.sales_size,
+        salesWidth: src.sales_width,
+        salesLength: src.sales_length,
+        salesThickness: src.sales_thickness,
+        salesThicknessMode: src.sales_thickness_mode,
+        saleBasis: src.sale_basis,
+        smallPackQuantity: src.small_pack_quantity,
+        packageCountPerSack: src.package_count_per_sack,
+        quotedSmallPackQuantity: src.small_pack_quantity,
+        quotedPackageCountPerSack: src.package_count_per_sack,
+        packagingChoice: 'quoted',
+        maximumSackWeight: '',
         compare: '',
       }))
       setStatus(src.status)
@@ -473,8 +547,10 @@ export function Desk({ meta, session, onSignOut }: Props) {
         length: planning.length,
         thickness: planning.thickness,
         gusset: planning.gusset,
+        sack_quantity: planning.sackQuantity,
       })
-      setPlanning((p) => ({ ...p, compare: out.line }))
+      setPlanning((p) => ({ ...p, compare: out.line, gramsPerItem: out.grams_per_item,
+        itemsPerKg: out.items_per_kg, adjustedItems: out.adjusted_items, sackWeight: out.sack_weight_kg }))
     } catch (e) {
       window.alert(e instanceof Error ? e.message : String(e))
     }
@@ -505,6 +581,37 @@ export function Desk({ meta, session, onSignOut }: Props) {
         gusset: planning.gusset,
         package: planning.packaging,
         notes: planning.notes,
+        drawing_doc_no: planning.drawingDocNo,
+        special_features: planning.specialFeatures,
+        sack_quantity: planning.sackQuantity,
+        sack_weight: planning.sackWeight,
+        tolerance_width: planning.toleranceWidth,
+        tolerance_length: planning.toleranceLength,
+        tolerance_thickness: planning.toleranceThickness,
+        tolerance_gusset_left: planning.toleranceGussetLeft,
+        tolerance_gusset_right: planning.toleranceGussetRight,
+        grams_per_item: planning.gramsPerItem,
+        items_per_kg: planning.itemsPerKg,
+        adjusted_items: planning.adjustedItems,
+        sale_basis: planning.saleBasis,
+        package_style: planning.packageStyle,
+        small_pack_quantity: planning.smallPackQuantity,
+        package_count_per_sack: planning.packageCountPerSack,
+        total_package_quantity: planning.saleBasis === 'piece' && Number(planning.smallPackQuantity) > 0 && Number(planning.packageCountPerSack) > 0 ? String(Number(planning.smallPackQuantity) * Number(planning.packageCountPerSack)) : '',
+        small_pack_weight: planning.saleBasis === 'piece' && Number(planning.smallPackQuantity) > 0 && Number(planning.gramsPerItem) > 0 ? (Number(planning.smallPackQuantity) * Number(planning.gramsPerItem) / 1000).toFixed(4) : planning.smallPackQuantity,
+        width_limits: Number(planning.width) > 0 ? `${(Number(planning.width) * 10 - Number(planning.toleranceWidth)).toFixed(1)} - ${(Number(planning.width) * 10 + Number(planning.toleranceWidth)).toFixed(1)} mm` : '',
+        length_limits: Number(planning.length) > 0 ? `${(Number(planning.length) * 10 - Number(planning.toleranceLength)).toFixed(1)} - ${(Number(planning.length) * 10 + Number(planning.toleranceLength)).toFixed(1)} mm` : '',
+        thickness_limits: Number(planning.thickness) > 0 ? `${(Number(planning.thickness) - Number(planning.toleranceThickness)).toFixed(3)} - ${(Number(planning.thickness) + Number(planning.toleranceThickness)).toFixed(3)} mm` : '',
+        gusset_limits: Number(planning.gusset) > 0 ? `${(Number(planning.gusset) * 10 - Math.max(Number(planning.toleranceGussetLeft), Number(planning.toleranceGussetRight))).toFixed(1)} - ${(Number(planning.gusset) * 10 + Math.max(Number(planning.toleranceGussetLeft), Number(planning.toleranceGussetRight))).toFixed(1)} mm` : '',
+        standard_sack_weight: planning.sackWeight,
+        maximum_sack_weight: planning.saleBasis === 'piece' && acceptedWeightMax > 0 && Number(planning.sackQuantity) > 0 ? (acceptedWeightMax * Number(planning.sackQuantity) / 1000).toFixed(4) : planning.maximumSackWeight,
+        comparison_quantity_pcs: comparisonPieces > 0 ? String(comparisonPieces) : '',
+        quoted_same_quantity_weight: quotedSamePiecesKg > 0 ? quotedSamePiecesKg.toFixed(4) : '',
+        production_same_quantity_weight: productionSamePiecesKg > 0 ? productionSamePiecesKg.toFixed(4) : '',
+        acceptable_same_quantity_weight: acceptedSamePiecesMinKg > 0 ? `${acceptedSamePiecesMinKg.toFixed(4)} - ${acceptedSamePiecesMaxKg.toFixed(4)}` : '',
+        same_quantity_weight_difference: comparisonPieces > 0 ? (productionSamePiecesKg - quotedSamePiecesKg).toFixed(4) : '',
+        customer_spec_thickness: planning.salesThickness ? `${planning.salesThickness} • ${planning.salesThicknessMode}` : '',
+        production_order_thickness: planning.thickness,
       })
       openSheet(sheet.html)
     } catch (e) {
@@ -519,6 +626,18 @@ export function Desk({ meta, session, onSignOut }: Props) {
   const display = answer?.display ?? {}
   const sellByKg = form.sale_basis === 'kg'
   const colors = labels.section_colors
+  const quotedThicknessNumber = Number((planning.salesThickness.match(/[0-9.]+/) ?? ['0'])[0])
+  const thicknessToleranceNumber = Number(planning.toleranceThickness)
+  const referenceWeightNumber = Number(planning.referenceGramsPerItem)
+  const acceptedWeightMin = quotedThicknessNumber > 0 && referenceWeightNumber > 0
+    ? referenceWeightNumber * Math.max(0, quotedThicknessNumber - thicknessToleranceNumber) / quotedThicknessNumber : 0
+  const acceptedWeightMax = quotedThicknessNumber > 0 && referenceWeightNumber > 0
+    ? referenceWeightNumber * (quotedThicknessNumber + thicknessToleranceNumber) / quotedThicknessNumber : 0
+  const comparisonPieces = Number(planning.sackQuantity)
+  const quotedSamePiecesKg = comparisonPieces > 0 && referenceWeightNumber > 0 ? comparisonPieces * referenceWeightNumber / 1000 : 0
+  const productionSamePiecesKg = comparisonPieces > 0 && Number(planning.gramsPerItem) > 0 ? comparisonPieces * Number(planning.gramsPerItem) / 1000 : 0
+  const acceptedSamePiecesMinKg = comparisonPieces > 0 && acceptedWeightMin > 0 ? comparisonPieces * acceptedWeightMin / 1000 : 0
+  const acceptedSamePiecesMaxKg = comparisonPieces > 0 && acceptedWeightMax > 0 ? comparisonPieces * acceptedWeightMax / 1000 : 0
 
   return (
     <div className="desk">
@@ -566,7 +685,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
       </div>
 
       <div className="desk-tabs" role="tablist">
-        {(['pricing', 'planning', 'drawing', 'history'] as Tab[]).map((id) => (
+        {(['pricing', 'sample', 'drawing', 'planning', 'coa', 'history'] as Tab[]).map((id) => (
           <button
             key={id}
             type="button"
@@ -575,7 +694,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
             className={tab === id ? 'is-on' : ''}
             onClick={() => setTab(id)}
           >
-            {labels.tabs[id]}
+            {id === 'coa' ? 'COA / Quality' : id === 'sample' ? 'Sample Inspection' : labels.tabs[id]}
           </button>
         ))}
       </div>
@@ -585,6 +704,8 @@ export function Desk({ meta, session, onSignOut }: Props) {
           {/* The compact card - the ONLY card the desktop's Pricing tab draws.
               Its section banner is deliberately removed (app.py:1006). */}
           <div className="desk-card is-compact">
+            <div className="desk-formsection is-customer">
+              <h2>1. ข้อมูลลูกค้าและเอกสาร / Customer & Document</h2>
             <div className="desk-row6">
               <Box label={labels.fields.customer_code}>
                 <input
@@ -616,7 +737,16 @@ export function Desk({ meta, session, onSignOut }: Props) {
                 <span className="desk-label">{labels.fields.product_type}</span>
                 <select
                   value={form.product_key}
-                  onChange={(e) => set({ product_key: e.target.value as ProductKey })}
+                  onChange={(e) => {
+                    const product_key = e.target.value as ProductKey
+                    set({
+                      product_key,
+                      // Plastic Sheet is one layer; bags contain two sides.
+                      // Other product types keep the operator's current choice.
+                      ...(product_key === 'opaque' ? { thickness_mode: 'side' as const } : {}),
+                      ...(['flat', 'gusset'].includes(product_key) ? { thickness_mode: 'pair' as const } : {}),
+                    })
+                  }}
                 >
                   {Object.entries(meta?.products ?? {}).map(([key, label]) => (
                     <option key={key} value={key}>
@@ -625,8 +755,19 @@ export function Desk({ meta, session, onSignOut }: Props) {
                   ))}
                 </select>
               </div>
+              <div className="desk-box is-span2">
+                <span className="desk-label">{labels.fields.item_description}</span>
+                <input value={form.item_description} onChange={(e) => set({ item_description: e.target.value })} />
+              </div>
+              <div className="desk-box is-span2">
+                <span className="desk-label">{labels.fields.product_reference}</span>
+                <input value={form.product_reference} onChange={(e) => set({ product_reference: e.target.value })} />
+              </div>
+            </div>
             </div>
 
+            <div className="desk-formsection is-product">
+              <h2>2. รายการสินค้า ขนาด และความหนา / Product, Dimensions & Thickness</h2>
             <div className="desk-row6">
               {drawn.includes('width') && (
                 <Box label={labels.fields.width}>
@@ -749,27 +890,28 @@ export function Desk({ meta, session, onSignOut }: Props) {
                   />
                 </Box>
               )}
-              <div className="desk-box is-span2">
-                <span className="desk-label">{labels.fields.item_description}</span>
-                <input
-                  value={form.item_description}
-                  onChange={(e) => set({ item_description: e.target.value })}
-                />
-              </div>
-              <div className="desk-box is-span2">
-                <span className="desk-label">{labels.fields.product_reference}</span>
-                <input
-                  value={form.product_reference}
-                  onChange={(e) => set({ product_reference: e.target.value })}
-                />
-              </div>
+            </div>
+            <h3 className="desk-source-subhead"><span className="desk-newbadge">เพิ่มใหม่ / NEW</span> ค่าคลาดเคลื่อนและลักษณะพิเศษต้นทาง / Master Tolerances & Special Requirements</h3>
+            <div className="desk-row6">
+              <Box label="ความกว้าง ± mm / Width Tolerance"><input value={form.tolerance_width} onChange={(e) => set({ tolerance_width: e.target.value })} /></Box>
+              <Box label="ความยาว ± mm / Length Tolerance"><input value={form.tolerance_length} onChange={(e) => set({ tolerance_length: e.target.value })} /></Box>
+              <Box label="ความหนา ± mm / Thickness Tolerance"><input value={form.tolerance_thickness} onChange={(e) => set({ tolerance_thickness: e.target.value })} /></Box>
+              {form.product_key === 'gusset' && <><Box label="พับข้างซ้าย ± mm / Left Gusset"><input value={form.tolerance_gusset_left} onChange={(e) => set({ tolerance_gusset_left: e.target.value })} /></Box><Box label="พับข้างขวา ± mm / Right Gusset"><input value={form.tolerance_gusset_right} onChange={(e) => set({ tolerance_gusset_right: e.target.value })} /></Box></>}
+              <label className="desk-box is-span2"><span className="desk-label">ลักษณะงานพิเศษ บรรทัดละหนึ่งข้อ / Special Requirements</span><textarea rows={3} value={form.special_requirements} onChange={(e) => set({ special_requirements: e.target.value })} /></label>
+            </div>
             </div>
           </div>
 
           {/* THE ACTION BAR, pinned under the form exactly as the desktop pins
               it to the bottom of the tab (app.py:1417-1641). */}
           <div className="desk-actionbar">
-            <p className="desk-steps">{labels.steps}</p>
+            <h2 className="desk-actiontitle">3. ข้อมูลราคาและแพ็คเกจ / Pricing & Packaging</h2>
+            <div className="desk-steps" aria-label={labels.steps}>
+              <span>1. กรอกสเปก / Enter Specs</span><b>›</b>
+              <span>2. คำนวณ / Calculate</span><b>›</b>
+              <span>3. กรอกราคาขาย / Final Price</span><b>›</b>
+              <span>4. เก็บบันทึก / Save</span>
+            </div>
 
             <div className="desk-basisrow">
               <select
@@ -856,6 +998,42 @@ export function Desk({ meta, session, onSignOut }: Props) {
               </label>
             </div>
 
+            <div className="desk-subcard">
+              <h3 className="desk-subhead">ข้อมูลแพ็คเกจที่เสนอขาย / Quoted Packaging</h3>
+              <div className="desk-grid">
+                <Box label="จำนวนใบต่อห่อหรือพับ / Pcs per Pack or Fold">
+                  <input value={form.pack_quantity} onChange={(e) => set({ pack_quantity: e.target.value })} />
+                </Box>
+                <Box label="จำนวนใบรวมต่อกระสอบ / Total Pcs per Sack">
+                  <input value={form.sack_quantity} onChange={(e) => set({ sack_quantity: e.target.value })} />
+                </Box>
+                <Box label="น้ำหนักต่อห่อหรือพับ / Pack or Fold Weight">
+                  <output className="desk-greenout">{display.pack_weight || 'กดคำนวณเพื่อแสดง กก. / Calculate to show kg'}</output>
+                </Box>
+                <Box label="น้ำหนักต่อกระสอบ / Sack Weight">
+                  <output className="desk-greenout">{display.sack_weight || 'กดคำนวณเพื่อแสดง กก. / Calculate to show kg'}</output>
+                </Box>
+              </div>
+            </div>
+
+            <div className="desk-keyresults" aria-label="Weight and production quantity results">
+              <div className="desk-keyresult">
+                <span>น้ำหนักต่อชิ้น / Weight per pc</span>
+                <strong>{display.grams || '—'}</strong>
+              </div>
+              <div className="desk-keyresult">
+                <span>จำนวนทางทฤษฎี / Theoretical quantity</span>
+                <strong>{display.items_per_kg ? `${display.items_per_kg}/กก.` : '—'}</strong>
+              </div>
+              <div className="desk-keyresult">
+                <span>
+                  หลังหักเผื่อผลิต {form.apply_deduction ? form.deduction || '0' : '0'}% /
+                  After production deduction
+                </span>
+                <strong>{display.adjusted_items ? `${display.adjusted_items}/กก.` : '—'}</strong>
+              </div>
+            </div>
+
             {!sellByKg && (
               <p className="desk-green">{display.derivation || labels.notes.derivation_idle}</p>
             )}
@@ -887,6 +1065,21 @@ export function Desk({ meta, session, onSignOut }: Props) {
               onLoad={loadPlanningSource}
             />
             <p className="desk-cardnote">{planning.summary || labels.planning.summary_idle}</p>
+            <div className="desk-subcard">
+              <h3 className="desk-subhead">ตารางเทียบสเปคลูกค้ากับสเปคสั่งผลิต / Customer Spec vs Production Order</h3>
+              <p className="desk-cardnote">{planning.salesProduct || '—'} • {planning.salesPartNo || '—'}</p>
+              <div className="desk-tablewrap"><table className="desk-table desk-comparetable"><thead><tr><th>ลำดับตรวจ / Check</th><th>ข้อมูลสั่งผลิตจริง / Production Order</th><th>สเปคที่ลูกค้ากำหนด / Customer-Specified</th><th>เกณฑ์ยอมรับได้ / Acceptance</th></tr></thead><tbody>
+                <tr><th>1. ความหนา / Thickness</th><td><strong>{planning.thickness || '—'}</strong></td><td>{planning.salesThickness ? `${planning.salesThickness} • ${planning.salesThicknessMode}` : '—'}</td><td>{planning.toleranceThickness ? `±${planning.toleranceThickness} mm` : '—'}</td></tr>
+                <tr><th>2. ความกว้าง / Width</th><td>{planning.width ? `${planning.width} cm` : '—'}</td><td>{planning.salesWidth || '—'}</td><td>{planning.toleranceWidth ? `±${planning.toleranceWidth} mm` : '—'}</td></tr>
+                <tr><th>3. ความยาว / Length</th><td>{planning.length ? `${planning.length} cm` : '—'}</td><td>{planning.salesLength || '—'}</td><td>{planning.toleranceLength ? `±${planning.toleranceLength} mm` : '—'}</td></tr>
+                <tr><th>4. แพ็คต่อกระสอบ / Packing</th><td>{planning.smallPackQuantity || '—'} {planning.saleBasis === 'piece' ? 'ใบ' : 'กก.'} × {planning.packageCountPerSack || '—'} {planning.packageStyle}</td><td>{planning.salesSize || '—'}</td><td>{planning.sackQuantity ? `${planning.sackQuantity} ใบ/กระสอบ` : '—'}</td></tr>
+                <tr><th>5. น้ำหนักต่อใบ / Weight per pc</th><td><strong>{planning.gramsPerItem ? `${planning.gramsPerItem} g/pc` : '—'}</strong></td><td>{planning.referenceGramsPerItem ? `${planning.referenceGramsPerItem} g/pc` : '—'}</td><td>{acceptedWeightMin > 0 ? `${acceptedWeightMin.toFixed(3)} - ${acceptedWeightMax.toFixed(3)} g/pc` : '—'}</td></tr>
+                <tr><th>6. เทียบจำนวนใบเท่ากัน / Same Quantity</th><td><strong>{comparisonPieces > 0 ? `${comparisonPieces} pcs = ${productionSamePiecesKg.toFixed(4)} kg` : '—'}</strong></td><td>{comparisonPieces > 0 ? `${comparisonPieces} pcs = ${quotedSamePiecesKg.toFixed(4)} kg` : '—'}</td><td>{acceptedSamePiecesMinKg > 0 ? `${acceptedSamePiecesMinKg.toFixed(4)} - ${acceptedSamePiecesMaxKg.toFixed(4)} kg` : '—'}</td></tr>
+                <tr><th>7. ผลต่างน้ำหนัก / Weight Difference</th><td colSpan={2}>{comparisonPieces > 0 ? `${(productionSamePiecesKg - quotedSamePiecesKg).toFixed(4)} kg สำหรับ ${comparisonPieces} ใบ / pcs` : '—'}</td><td>{productionSamePiecesKg >= acceptedSamePiecesMinKg && productionSamePiecesKg <= acceptedSamePiecesMaxKg && comparisonPieces > 0 ? 'PASS' : '—'}</td></tr>
+              </tbody></table></div>
+            </div>
+            <div className="desk-subcard">
+              <h3 className="desk-subhead">ข้อมูลรายการที่ใช้สั่งผลิตจริง (กรอกหรือปรับได้) / Production Order Specification</h3>
             <div className="desk-grid">
               <Box label={labels.planning.fields.production_width}>
                 <input
@@ -924,17 +1117,123 @@ export function Desk({ meta, session, onSignOut }: Props) {
                   onChange={(e) => setPlanning((p) => ({ ...p, quantity: e.target.value }))}
                 />
               </Box>
+              <Box label="จำนวนใบต่อกระสอบ / Pcs per sack">
+                <input
+                  value={planning.sackQuantity}
+                  onChange={(e) => {
+                    const sackQuantity = e.target.value
+                    const weight = Number(sackQuantity) * Number(planning.gramsPerItem) / 1000
+                    setPlanning((p) => ({ ...p, sackQuantity,
+                      sackWeight: Number.isFinite(weight) && weight > 0 ? weight.toFixed(4) : '' }))
+                  }}
+                />
+              </Box>
+              <Box label="น้ำหนักต่อกระสอบ / Sack weight (kg)">
+                <output className="desk-greenout">{planning.sackWeight ? `${planning.sackWeight} กก.` : '—'}</output>
+              </Box>
+              <Box label="หน่วยขาย / Sale Basis">
+                <select value={planning.saleBasis} onChange={(e) => setPlanning((p) => ({ ...p, saleBasis: e.target.value as 'piece' | 'kg' }))}>
+                  <option value="piece">ขายเป็นใบ / Sell by Piece</option><option value="kg">ขายเป็นกิโลกรัม / Sell by kg</option>
+                </select>
+              </Box>
+              <Box label="รูปแบบแพ็ค / Packing Style">
+                <select value={planning.packageStyle} onChange={(e) => setPlanning((p) => ({ ...p, packageStyle: e.target.value as PlanningState['packageStyle'] }))}>
+                  <option value="ห่อ / Pack">ห่อ / Pack</option><option value="พับ / Fold">พับ / Fold</option>
+                </select>
+              </Box>
+              <Box label="เลือกข้อมูลแพ็คสำหรับผลิต / Production Packing Source">
+                <select value={planning.packagingChoice} onChange={(e) => setPlanning((p) => {
+                  const packagingChoice = e.target.value as 'quoted' | 'new'
+                  if (packagingChoice === 'quoted') {
+                    const total = Number(p.quotedSmallPackQuantity) * Number(p.quotedPackageCountPerSack)
+                    return { ...p, packagingChoice, smallPackQuantity: p.quotedSmallPackQuantity,
+                      packageCountPerSack: p.quotedPackageCountPerSack,
+                      sackQuantity: p.saleBasis === 'piece' && total > 0 ? String(total) : p.sackQuantity,
+                      sackWeight: total > 0 ? (p.saleBasis === 'piece' ? (total * Number(p.gramsPerItem) / 1000).toFixed(4) : total.toFixed(4)) : '' }
+                  }
+                  return { ...p, packagingChoice, smallPackQuantity: '', packageCountPerSack: '', sackQuantity: '', sackWeight: '' }
+                })}>
+                  <option value="quoted">ใช้ตามที่คำนวณและเสนอขาย / Use Quoted Packaging</option>
+                  <option value="new">ลูกค้าขอเปลี่ยน - ป้อนข้อมูลใหม่ / Customer Change</option>
+                </select>
+              </Box>
+              <Box label={planning.saleBasis === 'piece' ? 'จำนวนใบต่อห่อหรือพับ / Pcs per Pack or Fold' : 'น้ำหนักต่อห่อหรือพับ / kg per Pack or Fold'}>
+                <input value={planning.smallPackQuantity} readOnly={planning.packagingChoice === 'quoted'} onChange={(e) => setPlanning((p) => {
+                  const smallPackQuantity = e.target.value, total = Number(smallPackQuantity) * Number(p.packageCountPerSack)
+                  return { ...p, smallPackQuantity,
+                    sackQuantity: p.saleBasis === 'piece' && total > 0 ? String(total) : p.sackQuantity,
+                    sackWeight: total > 0 ? (p.saleBasis === 'piece' ? (total * Number(p.gramsPerItem) / 1000).toFixed(4) : total.toFixed(4)) : '' }
+                })} />
+              </Box>
+              <Box label="จำนวนห่อหรือพับต่อกระสอบ / Packs or Folds per Sack">
+                <input value={planning.packageCountPerSack} readOnly={planning.packagingChoice === 'quoted'} onChange={(e) => setPlanning((p) => {
+                  const packageCountPerSack = e.target.value, total = Number(p.smallPackQuantity) * Number(packageCountPerSack)
+                  return { ...p, packageCountPerSack,
+                    sackQuantity: p.saleBasis === 'piece' && total > 0 ? String(total) : p.sackQuantity,
+                    sackWeight: total > 0 ? (p.saleBasis === 'piece' ? (total * Number(p.gramsPerItem) / 1000).toFixed(4) : total.toFixed(4)) : '' }
+                })} />
+              </Box>
+              <Box label={planning.saleBasis === 'piece' ? 'รวมจำนวนใบต่อกระสอบ / Total Pcs per Sack' : 'รวมน้ำหนักต่อกระสอบ / Total kg per Sack'}>
+                <output className="desk-greenout">{Number(planning.smallPackQuantity) > 0 && Number(planning.packageCountPerSack) > 0 ? `${Number(planning.smallPackQuantity) * Number(planning.packageCountPerSack)} ${planning.saleBasis === 'piece' ? 'ใบ' : 'กก.'}` : '—'}</output>
+              </Box>
+              {planning.saleBasis === 'kg' && <Box label="น้ำหนักสูงสุดที่อนุญาต / Maximum Sack Weight (kg)">
+                <input value={planning.maximumSackWeight} onChange={(e) => setPlanning((p) => ({ ...p, maximumSackWeight: e.target.value }))} placeholder="กรอกตามข้อตกลงลูกค้า / Enter agreed limit" />
+              </Box>}
               <Box label={labels.planning.fields.production_notes}>
                 <input
                   value={planning.notes}
                   onChange={(e) => setPlanning((p) => ({ ...p, notes: e.target.value }))}
                 />
               </Box>
+              <Box label="เลขแบบอนุมัติ / Approved Drawing No.">
+                <output className="desk-greenout">{planning.drawingDocNo || '— ยังไม่มีแบบที่บันทึกและผูกกับใบราคานี้ —'}</output>
+              </Box>
+              <label className="desk-box" style={{ gridColumn: '1 / -1' }}>
+                <span className="desk-label">ลักษณะพิเศษจากแบบที่ลูกค้าอนุมัติ / Approved Special Characteristics</span>
+                <textarea rows={4} value={planning.specialFeatures} readOnly placeholder="บันทึก Drawing โดยอ้างอิงเลขใบคำนวณราคาก่อน ข้อมูลจะขึ้นอัตโนมัติที่นี่" />
+                <span className="desk-hint">ข้อมูลควบคุมจาก Drawing ไม่ให้แผนกตัดพิมพ์ซ้ำหรือแก้ต่างจากแบบอนุมัติ</span>
+              </label>
               <div className="desk-box is-button">
                 <button type="button" className="desk-accent" onClick={compareWeight}>
                   {labels.planning.compare}
                 </button>
               </div>
+            </div>
+            </div>
+            <div className="desk-subcard">
+              <h3 className="desk-subhead">ค่าความคลาดเคลื่อนจากใบเสนอราคา / Quotation tolerances</h3>
+              <div className="desk-grid">
+                <Box label="ความกว้าง ± mm / Width">
+                  <input value={planning.toleranceWidth} readOnly />
+                </Box>
+                <Box label="ความยาว ± mm / Length">
+                  <input value={planning.toleranceLength} readOnly />
+                </Box>
+                <Box label="ความหนา ± mm / Thickness">
+                  <input value={planning.toleranceThickness} readOnly />
+                </Box>
+                {planning.productKey === 'gusset' && <>
+                  <Box label="พับข้างซ้าย ± mm / Left gusset">
+                    <input value={planning.toleranceGussetLeft} onChange={(e) => setPlanning((p) => ({ ...p, toleranceGussetLeft: e.target.value }))} />
+                  </Box>
+                  <Box label="พับข้างขวา ± mm / Right gusset">
+                    <input value={planning.toleranceGussetRight} onChange={(e) => setPlanning((p) => ({ ...p, toleranceGussetRight: e.target.value }))} />
+                  </Box>
+                </>}
+              </div>
+              <div className="desk-tablewrap"><table className="desk-table desk-qctable"><thead><tr><th>รายการวัด / QC Check</th><th>ค่าที่ใช้ผลิต / Nominal</th><th>ช่วงยอมรับได้ / Acceptable Range</th><th>ค่าที่วัดได้ / Actual</th><th>ผล / Result</th></tr></thead><tbody>
+                <tr><td>ความกว้าง / Width</td><td>{planning.width ? `${Number(planning.width) * 10} mm` : '—'}</td><td>{Number(planning.width) > 0 ? `${Number(planning.width) * 10 - Number(planning.toleranceWidth)} - ${Number(planning.width) * 10 + Number(planning.toleranceWidth)} mm` : '—'}</td><td></td><td>☐ PASS ☐ FAIL</td></tr>
+                <tr><td>ความยาว / Length</td><td>{planning.length ? `${Number(planning.length) * 10} mm` : '—'}</td><td>{Number(planning.length) > 0 ? `${Number(planning.length) * 10 - Number(planning.toleranceLength)} - ${Number(planning.length) * 10 + Number(planning.toleranceLength)} mm` : '—'}</td><td></td><td>☐ PASS ☐ FAIL</td></tr>
+                <tr><td>ความหนา / Thickness</td><td>{planning.thickness ? `${planning.thickness} mm` : '—'}</td><td>{Number(planning.thickness) > 0 ? `${(Number(planning.thickness) - Number(planning.toleranceThickness)).toFixed(3)} - ${(Number(planning.thickness) + Number(planning.toleranceThickness)).toFixed(3)} mm` : '—'}</td><td></td><td>☐ PASS ☐ FAIL</td></tr>
+                {planning.productKey === 'gusset' && <tr><td>พับข้างซ้าย/ขวา / Gusset L/R</td><td>{planning.gusset ? `${Number(planning.gusset) * 10} mm` : '—'}</td><td>ซ้าย ±{planning.toleranceGussetLeft || '—'} / ขวา ±{planning.toleranceGussetRight || '—'} mm</td><td></td><td>☐ PASS ☐ FAIL</td></tr>}
+              </tbody></table></div>
+            </div>
+            <div className="desk-keyresults" aria-label="Production planning results">
+              <div className="desk-keyresult"><span>น้ำหนักต่อชิ้น / Weight per pc</span><strong>{planning.gramsPerItem ? `${planning.gramsPerItem} กรัม` : '—'}</strong></div>
+              <div className="desk-keyresult"><span>จำนวนทางทฤษฎี / Theoretical quantity</span><strong>{planning.itemsPerKg ? `${planning.itemsPerKg} ใบ/กก.` : '—'}</strong></div>
+              <div className="desk-keyresult"><span>จำนวนหลังหักเผื่อผลิต / After production deduction</span><strong>{planning.adjustedItems ? `${planning.adjustedItems} ใบ/กก.` : '—'}</strong></div>
+              <div className="desk-keyresult"><span>จำนวนต่อกระสอบ / Pcs per sack</span><strong>{planning.sackQuantity ? `${planning.sackQuantity} ใบ` : '—'}</strong></div>
+              <div className="desk-keyresult"><span>น้ำหนักต่อกระสอบ / Sack weight</span><strong>{planning.sackWeight ? `${planning.sackWeight} กก.` : '—'}</strong></div>
             </div>
             <p className="desk-green">{planning.compare || labels.planning.compare_idle}</p>
             <p className="desk-mutednote">{labels.planning.next_note}</p>
@@ -1047,7 +1346,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
                 </div>
               </div>
               <div className="desk-results">
-                {labels.results.map((tile) => (
+                {labels.results.filter((tile) => tile.key !== 'total_price').map((tile) => (
                   <div key={tile.key} className="desk-result">
                     <span className="desk-resultname">
                       {tile.live_label === 'deduction_caption'
@@ -1100,6 +1399,10 @@ export function Desk({ meta, session, onSignOut }: Props) {
       {tab === 'drawing' && (
         <Drawing labels={labels} form={form} meta={meta} customers={customers} />
       )}
+
+      {tab === 'sample' && <SampleInspection />}
+
+      {tab === 'coa' && <Coa />}
 
       {tab === 'history' && (
         <History

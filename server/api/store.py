@@ -462,6 +462,7 @@ def save_drawing_web(record: dict[str, Any], *, user_id: int | None) -> str:
                     height_mm = EXCLUDED.height_mm,
                     gusset_mm = EXCLUDED.gusset_mm,
                     thickness_mm = EXCLUDED.thickness_mm,
+                    quote_ref = EXCLUDED.quote_ref,
                     spec_json = EXCLUDED.spec_json
                 """,
                 (
@@ -510,4 +511,13 @@ def get_drawing(doc_no: str) -> dict[str, Any] | None:
     with pool().connection() as conn:
         return conn.execute(
             "SELECT * FROM drawings WHERE doc_no = %s", (doc_no,)
+        ).fetchone()
+
+
+def get_latest_drawing_for_quote(quote_ref: str) -> dict[str, Any] | None:
+    """Return the newest saved revision linked to one pricing record."""
+    with pool().connection() as conn:
+        return conn.execute(
+            "SELECT * FROM drawings WHERE quote_ref = %s ORDER BY drawing_date DESC, created_at DESC LIMIT 1",
+            (quote_ref,),
         ).fetchone()

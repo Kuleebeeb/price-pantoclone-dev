@@ -353,6 +353,40 @@ export const calculate = (body: CalcRequest, signal?: AbortSignal) =>
     ...(signal ? { signal } : {}),
   })
 
+export type CoaSource = {
+  quote_ref: string; customer: string; customer_code: string; part_no: string; product: string
+  size_text: string; width_mm: number; length_mm: number; thickness_mm: number
+  thickness_mode: 'side' | 'pair'; line: string
+  special_requirements?: string
+}
+export type CoaRecord = Record<string, string | number | null> & { id: number; quote_ref: string; status: string }
+export type CoaSave = {
+  id?: number; status: string; quote_ref: string; po_no: string; lot_no: string
+  production_date: string | null; inspection_date: string | null; issue_date: string | null
+  quantity: string; material: string; color: string; printing: string
+  width_tolerance_mm: number; length_tolerance_mm: number; thickness_tolerance_mm: number
+  actual_width_mm: number | null; actual_length_mm: number | null; actual_thickness_mm: number | null
+  result: string; remarks: string; checked_by: string; approved_by: string
+}
+export const coaSources = (q = '') => request<{ rows: CoaSource[] }>(`/api/coa/sources${tail({ q })}`)
+export const listCoas = () => request<{ rows: CoaRecord[] }>('/api/coa')
+export const saveCoa = (body: CoaSave) => request<{ row: CoaRecord }>('/api/coa', { method: 'POST', body: JSON.stringify(body) })
+export const coaPrintHtml = (id: number) => request<{ html: string }>(`/api/coa/${id}/print`)
+
+export type SampleSource = CoaSource & { product_key:string; gusset_mm:number; tolerance_width_mm:number; tolerance_length_mm:number; tolerance_thickness_mm:number;
+  tolerance_gusset_left_mm?:number; tolerance_gusset_right_mm?:number;
+  width_original?:{value:number;unit:string}; length_original?:{value:number;unit:string}; gusset_original?:{value:number;unit:string}; thickness_original?:{value:number;unit:string} }
+export type SampleMeasurement = { width:number|null; length:number|null; thickness:number|null; gusset_left:number|null; gusset_right:number|null }
+export type SampleInspectionSave = { id?:number; quote_ref:string; inspection_date:string; tolerance_width_mm:number; tolerance_length_mm:number;
+  tolerance_thickness_mm:number; tolerance_gusset_left_mm:number; tolerance_gusset_right_mm:number; measurements:SampleMeasurement[];
+  remarks:string; checked_by:string; approved_by:string }
+export type SampleInspectionRecord = Record<string, unknown> & { id:number; report_no:string; quote_ref:string; customer:string; product:string; overall_result:string; results_json:SampleMeasurement[] }
+export const sampleSources = (q='') => request<{rows:SampleSource[]}>(`/api/sample-inspections/sources${tail({q})}`)
+export const listSampleInspections = () => request<{rows:SampleInspectionRecord[]}>('/api/sample-inspections')
+export const saveSampleInspection = (body:SampleInspectionSave) => request<{row:SampleInspectionRecord}>('/api/sample-inspections',{method:'POST',body:JSON.stringify(body)})
+export const deleteSampleInspection = (id:number) => request<{deleted:number}>(`/api/sample-inspections/${id}`,{method:'DELETE'})
+export const samplePrintHtml = (id:number) => request<{html:string}>(`/api/sample-inspections/${id}/print`)
+
 export type SearchParams = {
   customer?: string
   item?: string
@@ -494,6 +528,7 @@ export const drawingHtml = (body: DrawingRequest) =>
 
 export type DrawingSave = {
   doc_no: string
+  quote_ref: string
   drawing_date: string
   revision: string
   customer: string
@@ -577,6 +612,29 @@ export type SourcePrefill = {
   quantity: string
   summary: string
   status: string
+  product_key: string
+  sack_quantity: string
+  sack_weight_kg: string
+  grams_per_item: string
+  items_per_kg: string
+  adjusted_items: string
+  tolerance_width_mm: string
+  tolerance_length_mm: string
+  tolerance_thickness_mm: string
+  tolerance_gusset_left_mm: string
+  tolerance_gusset_right_mm: string
+  drawing_doc_no: string
+  special_features: string
+  sales_product: string
+  sales_part_no: string
+  sales_size: string
+  sales_width: string
+  sales_length: string
+  sales_thickness: string
+  sales_thickness_mode: string
+  sale_basis: 'piece' | 'kg'
+  small_pack_quantity: string
+  package_count_per_sack: string
 }
 
 /** Resolve one picked/typed/pasted line into the planning prefill - the
@@ -593,8 +651,9 @@ export const planningCompare = (body: {
   length: string
   thickness: string
   gusset: string
+  sack_quantity: string
 }) =>
-  request<{ line: string }>('/api/planning/compare', {
+  request<{ line: string; grams_per_item: string; items_per_kg: string; adjusted_items: string; sack_weight_kg: string }>('/api/planning/compare', {
     method: 'POST',
     body: JSON.stringify(body),
   })
@@ -609,6 +668,37 @@ export const workOrderHtml = (body: {
   gusset: string
   package: string
   notes: string
+  drawing_doc_no: string
+  special_features: string
+  sack_quantity: string
+  sack_weight: string
+  tolerance_width: string
+  tolerance_length: string
+  tolerance_thickness: string
+  tolerance_gusset_left: string
+  tolerance_gusset_right: string
+  grams_per_item: string
+  items_per_kg: string
+  adjusted_items: string
+  sale_basis: 'piece' | 'kg'
+  package_style: string
+  small_pack_quantity: string
+  package_count_per_sack: string
+  total_package_quantity: string
+  small_pack_weight: string
+  width_limits: string
+  length_limits: string
+  thickness_limits: string
+  gusset_limits: string
+  standard_sack_weight: string
+  maximum_sack_weight: string
+  comparison_quantity_pcs: string
+  quoted_same_quantity_weight: string
+  production_same_quantity_weight: string
+  acceptable_same_quantity_weight: string
+  same_quantity_weight_difference: string
+  customer_spec_thickness: string
+  production_order_thickness: string
 }) =>
   request<{ html: string }>('/api/work-orders/html', {
     method: 'POST',
