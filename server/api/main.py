@@ -1655,7 +1655,10 @@ def api_sample_print(report_id: int) -> dict[str, str]:
 @app.get("/api/coa/sources")
 def api_coa_sources(q: str = "", limit: int = Query(default=20, ge=1, le=100)) -> dict[str, Any]:
     rows = db.find_quotations(q.strip(), limit)
-    return {"rows": [_coa_source(db.get_quotation(r["quote_ref"])) for r in rows]}
+    # The superset row: a COA must inherit the tolerances the quotation fixed
+    # (CEO rule 2026-08-30: acceptance criteria originate in pricing, later
+    # steps read them), so it gets the same source line Sample Inspection does.
+    return {"rows": [_sample_source(db.get_quotation(r["quote_ref"])) for r in rows]}
 
 
 @app.get("/api/coa")
@@ -1687,6 +1690,19 @@ def api_coa_save(req: CoaSaveRequest) -> dict[str, Any]:
         "length_mm": source["length_mm"], "thickness_mm": source["thickness_mm"],
         "thickness_mode": source["thickness_mode"], "created_by": ""})
     return {"row": row}
+
+
+@app.delete("/api/coa/{coa_id}")
+def api_coa_delete(coa_id: int) -> dict[str, Any]:
+    outcome = db.delete_coa(coa_id)
+    if outcome == "missing":
+        raise HTTPException(status_code=404, detail="COA not found")
+    if outcome == "final":
+        raise HTTPException(
+            status_code=409,
+            detail="COA ที่ออกเลขที่แล้ว (FINAL) ลบไม่ได้ ให้ทำ Revision แทน / A FINAL COA cannot be deleted; revise it instead",
+        )
+    return {"deleted": coa_id}
 
 
 @app.get("/api/coa/{coa_id}/print")
@@ -2111,6 +2127,7 @@ def build_print_html(req: PrintRequest, out: dict[str, Any]) -> str:
         "th{width:44%;background:#f1f6fa;font-weight:700}"
         ".price th,.price td{border-color:#6f91ac}"
         ".note{margin-top:12px;padding:9px;border:1px solid #c7d3dd;background:#f8fafc;color:#445667}"
+        ".foot{position:fixed;bottom:2mm;left:0;right:0;border-top:1px solid #999;padding-top:3px;font-size:9px;display:flex;justify-content:space-between;color:#445667}"
         ".actions{position:sticky;top:0;padding:10px;text-align:center;background:#16324f}"
         "button{padding:9px 22px;border:0;border-radius:5px;background:#167d5a;color:#fff;font-weight:700;cursor:pointer}"
         "@media print{body{background:#fff}.sheet{margin:0;box-shadow:none}.no-print{display:none !important}}"
@@ -2127,7 +2144,10 @@ def build_print_html(req: PrintRequest, out: dict[str, Any]) -> str:
         "<p class=\"note\">น้ำหนักต่อแพ็ก (กก.) = กรัมต่อชิ้น × ชิ้นในแพ็ก ÷ 1,000 / Pack Weight (kg) = grams per item × pieces per pack ÷ 1,000</p>"
         "<h2>สูตรที่บันทึก / Saved Formulas</h2>"
         "<table>" + _print_rows(formulas) + "</table>"
-        "</div></body></html>"
+        "</div>"
+        "<div class=\"foot\"><span>PANTONG THAI PACK CO., LTD. • " + html_mod.escape(title) + "</span>"
+        "<span>Printed: " + stamp + " • Page 1 of 1</span></div>"
+        "</body></html>"
     )
 
 
@@ -2229,7 +2249,17 @@ def api_get(quote_ref: str) -> dict[str, Any]:
 
 @app.delete("/api/quotations/{quote_ref:path}")
 def api_delete(quote_ref: str) -> dict[str, Any]:
-    if not db.delete_quotation(quote_ref):
+    try:
+        deleted = db.delete_quotation(quote_ref)
+    except db.QuotationInUse as exc:
+        # A COA that was issued, or a sample report that was signed, must keep
+        # pointing at the sheet it was measured against - say so, do not 500.
+        raise HTTPException(
+            status_code=409,
+            detail="ใบเสนอราคานี้มี COA หรือรายงานตรวจตัวอย่างอ้างอิงอยู่ ลบไม่ได้ "
+                   "/ A COA or Sample Inspection Report references this quotation; delete those first",
+        ) from exc
+    if not deleted:
         raise HTTPException(status_code=404, detail="ไม่พบใบเสนอราคา / Quotation not found")
     return {"deleted": quote_ref}
 

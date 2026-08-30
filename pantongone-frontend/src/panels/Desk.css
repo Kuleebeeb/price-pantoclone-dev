@@ -217,7 +217,7 @@
 }
 
 .desk-band.is-brown {
-  background: #694a85;
+  background: var(--navy);
 }
 
 /* The compact card's six equal columns (app.py:1007-1008). */
@@ -848,7 +848,7 @@
 .desk-qctable thead th:nth-child(2), .desk-qctable tbody td:nth-child(2) { background: #eff8f2; }
 .desk-qctable thead th:nth-child(3), .desk-qctable tbody td:nth-child(3) { background: #fff9e8; }
 .desk-qctable thead th:nth-child(4), .desk-qctable tbody td:nth-child(4) { background: #f0f7fc; }
-.desk-qctable thead th:nth-child(5), .desk-qctable tbody td:nth-child(5) { background: #f5f1f7; }
+.desk-qctable thead th:nth-child(5), .desk-qctable tbody td:nth-child(5) { background: #f3f4f6; }
 
 .desk-comparetable tbody tr:nth-child(even) td,
 .desk-comparetable tbody tr:nth-child(even) th,

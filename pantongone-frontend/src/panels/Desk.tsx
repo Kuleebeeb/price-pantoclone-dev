@@ -1400,9 +1400,9 @@ export function Desk({ meta, session, onSignOut }: Props) {
         <Drawing labels={labels} form={form} meta={meta} customers={customers} />
       )}
 
-      {tab === 'sample' && <SampleInspection />}
+      {tab === 'sample' && <SampleInspection onBack={() => setTab('pricing')} />}
 
-      {tab === 'coa' && <Coa />}
+      {tab === 'coa' && <Coa onBack={() => setTab('pricing')} />}
 
       {tab === 'history' && (
         <History

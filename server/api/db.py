@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from psycopg import Connection
+from psycopg.errors import ForeignKeyViolation
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
@@ -361,9 +362,16 @@ def get_quotation(quote_ref: str) -> dict[str, Any] | None:
         ).fetchone()
 
 
+class QuotationInUse(Exception):
+    """A COA or Sample Inspection Report still points at this quotation (migrations 0007/0008)."""
+
+
 def delete_quotation(quote_ref: str) -> bool:
     with pool().connection() as conn:
-        cur = conn.execute("DELETE FROM quotations WHERE quote_ref = %s", (quote_ref,))
+        try:
+            cur = conn.execute("DELETE FROM quotations WHERE quote_ref = %s", (quote_ref,))
+        except ForeignKeyViolation as exc:
+            raise QuotationInUse(quote_ref) from exc
         return cur.rowcount > 0
 
 
@@ -525,3 +533,16 @@ def get_sample_inspection(report_id: int) -> dict[str, Any] | None:
 def delete_sample_inspection(report_id: int) -> bool:
     with pool().connection() as conn:
         return conn.execute("DELETE FROM sample_inspections WHERE id=%s", (report_id,)).rowcount > 0
+
+
+def delete_coa(coa_id: int) -> str:
+    """Delete an unissued COA. A FINAL one already carries a number the customer has seen."""
+    with pool().connection() as conn:
+        with conn.transaction():
+            row = conn.execute("SELECT status FROM coa_certificates WHERE id=%s FOR UPDATE", (coa_id,)).fetchone()
+            if not row:
+                return "missing"
+            if row["status"] == "FINAL":
+                return "final"
+            conn.execute("DELETE FROM coa_certificates WHERE id=%s", (coa_id,))
+    return "deleted"

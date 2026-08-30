@@ -358,6 +358,7 @@ export type CoaSource = {
   size_text: string; width_mm: number; length_mm: number; thickness_mm: number
   thickness_mode: 'side' | 'pair'; line: string
   special_requirements?: string
+  tolerance_width_mm?: number; tolerance_length_mm?: number; tolerance_thickness_mm?: number
 }
 export type CoaRecord = Record<string, string | number | null> & { id: number; quote_ref: string; status: string }
 export type CoaSave = {
@@ -372,6 +373,7 @@ export const coaSources = (q = '') => request<{ rows: CoaSource[] }>(`/api/coa/s
 export const listCoas = () => request<{ rows: CoaRecord[] }>('/api/coa')
 export const saveCoa = (body: CoaSave) => request<{ row: CoaRecord }>('/api/coa', { method: 'POST', body: JSON.stringify(body) })
 export const coaPrintHtml = (id: number) => request<{ html: string }>(`/api/coa/${id}/print`)
+export const deleteCoa = (id: number) => request<{ deleted: number }>(`/api/coa/${id}`, { method: 'DELETE' })
 
 export type SampleSource = CoaSource & { product_key:string; gusset_mm:number; tolerance_width_mm:number; tolerance_length_mm:number; tolerance_thickness_mm:number;
   tolerance_gusset_left_mm?:number; tolerance_gusset_right_mm?:number;
