@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import html
 import math
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from dataclasses import dataclass, field as dc_field
 from typing import Callable
 
@@ -581,6 +583,8 @@ def render_html(spec: DrawingSpec) -> str:
     """หน้าเว็บสำหรับดูตัวอย่างและสั่งพิมพ์ A4 แนวนอน"""
     svg = render_svg(spec)
     title = _esc(f"{spec.doc_no} — {spec.title}")
+    # Bangkok on purpose: the container runs UTC (tech-stack.md 3).
+    stamp = datetime.now(ZoneInfo("Asia/Bangkok")).strftime("%d/%m/%Y %H:%M:%S")
     return f"""<!DOCTYPE html>
 <html lang="th">
 <head>
@@ -593,6 +597,9 @@ def render_html(spec: DrawingSpec) -> str:
   .bar button {{ float: right; font: inherit; padding: 6px 16px; cursor: pointer; }}
   .sheet {{ background: #fff; margin: 16px auto; max-width: 1180px;
             box-shadow: 0 2px 12px rgba(0,0,0,.18); }}
+  .foot {{ position: fixed; bottom: 2mm; left: 0; right: 0; border-top: 1px solid #999;
+           padding: 3px 6mm 0; font-size: 9px; color: #445667;
+           display: flex; justify-content: space-between; }}
   @media print {{ .bar {{ display: none; }}
                   .sheet {{ margin: 0; max-width: none; box-shadow: none; }}
                   body {{ background: #fff; }} }}
@@ -603,5 +610,6 @@ def render_html(spec: DrawingSpec) -> str:
   <button onclick="window.print()">พิมพ์ / Print</button>
 </div>
 <div class="sheet">{svg}</div>
+<div class="foot"><span>PANTONG THAI PACK CO., LTD. • {_esc(spec.doc_no)}</span><span>Printed: {stamp} • Page 1 of 1</span></div>
 </body>
 </html>"""

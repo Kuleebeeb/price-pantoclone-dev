@@ -217,7 +217,7 @@
 }
 
 .desk-band.is-brown {
-  background: #694a85;
+  background: var(--navy);
 }
 
 /* The compact card's six equal columns (app.py:1007-1008). */
@@ -352,6 +352,24 @@
   color: #fff;
   font-size: 15px;
   font-weight: 700;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 9px;
+  line-height: 1.45;
+  overflow: visible;
+  white-space: normal;
+}
+
+.desk-steps span {
+  display: inline-block;
+  white-space: normal;
+}
+
+.desk-steps b {
+  flex: 0 0 auto;
+  font-size: 18px;
+  line-height: 1;
 }
 
 .desk-basisrow {
@@ -491,6 +509,103 @@
 
 @media (max-width: 900px) {
   .desk-prices {
+    grid-template-columns: 1fr;
+  }
+}
+
+.desk-formsection {
+  border: 1px solid #aab4bf;
+  border-radius: 5px;
+  overflow: hidden;
+  margin-bottom: 10px;
+  background: #fff;
+}
+
+.desk-formsection > h2,
+.desk-actiontitle {
+  margin: 0 0 7px;
+  padding: 8px 11px;
+  font-size: 14px;
+  line-height: 1.25;
+  font-weight: 700;
+  border-bottom: 1px solid #9eabb7;
+}
+
+.desk-source-subhead {
+  margin: 6px 8px 2px;
+  padding: 8px 10px;
+  border: 1px solid #d2b45b;
+  border-radius: 4px;
+  background: #fff6d9;
+  color: #3e3414;
+  font-size: 14px;
+}
+
+.desk-newbadge {
+  display: inline-block;
+  margin-right: 7px;
+  padding: 3px 7px;
+  border-radius: 10px;
+  background: #dceaf4;
+  color: #173c57;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.desk-formsection.is-customer > h2 {
+  background: #dceaf4;
+  color: #18384e;
+}
+
+.desk-formsection.is-product > h2 {
+  background: #e0efe5;
+  color: #1d452c;
+}
+
+.desk-formsection .desk-row6 {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.desk-actiontitle {
+  background: #f4e7bd;
+  color: #493a12;
+  border: 1px solid #b9aa75;
+  border-radius: 4px;
+}
+
+.desk-keyresults {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(190px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.desk-keyresult {
+  min-height: 76px;
+  padding: 10px 12px;
+  border: 2px solid #1f6aa5;
+  background: #f5f9fc;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.desk-keyresult span {
+  color: #344054;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.desk-keyresult strong {
+  color: var(--navy);
+  font-size: 20px;
+  line-height: 1.15;
+}
+
+@media (max-width: 900px) {
+  .desk-keyresults {
     grid-template-columns: 1fr;
   }
 }
@@ -706,6 +821,39 @@
 .desk-table .is-num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* Comparison tables use pale, ink-saving column bands. The same colour is
+   carried from header to body so operators can follow one data source down
+   the page without crossing into the quoted or acceptance column. */
+.desk-comparetable th,
+.desk-comparetable td,
+.desk-qctable th,
+.desk-qctable td {
+  border-color: #7b8794;
+  border-width: 1px;
+  vertical-align: middle;
+}
+
+.desk-comparetable thead th:nth-child(1),
+.desk-comparetable tbody th:nth-child(1) { background: #eef1f4; color: #263442; }
+.desk-comparetable thead th:nth-child(2) { background: #cfe8d8; color: #163d27; }
+.desk-comparetable tbody td:nth-child(2) { background: #eff8f2; }
+.desk-comparetable thead th:nth-child(3) { background: #d6e8f5; color: #173852; }
+.desk-comparetable tbody td:nth-child(3) { background: #f0f7fc; }
+.desk-comparetable thead th:nth-child(4) { background: #f4e4ad; color: #493a0c; }
+.desk-comparetable tbody td:nth-child(4) { background: #fff9e8; }
+
+.desk-qctable thead th:nth-child(1), .desk-qctable tbody td:nth-child(1) { background: #eef1f4; }
+.desk-qctable thead th:nth-child(2), .desk-qctable tbody td:nth-child(2) { background: #eff8f2; }
+.desk-qctable thead th:nth-child(3), .desk-qctable tbody td:nth-child(3) { background: #fff9e8; }
+.desk-qctable thead th:nth-child(4), .desk-qctable tbody td:nth-child(4) { background: #f0f7fc; }
+.desk-qctable thead th:nth-child(5), .desk-qctable tbody td:nth-child(5) { background: #f3f4f6; }
+
+.desk-comparetable tbody tr:nth-child(even) td,
+.desk-comparetable tbody tr:nth-child(even) th,
+.desk-qctable tbody tr:nth-child(even) td {
+  background-image: linear-gradient(rgba(255,255,255,.22), rgba(255,255,255,.22));
 }
 
 .desk-empty {

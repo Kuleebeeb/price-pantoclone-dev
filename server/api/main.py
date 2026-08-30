@@ -59,7 +59,7 @@ import store  # noqa: E402
 # len "1.7.1 (Phase 1) - Planning screen" (app.py:51, mtime 18:12) - MOI HON ban
 # .exe v1.5.1 (17:31). CEO sua nguon nhieu lan mot ngay: truoc khi tin ban clone,
 # so mtime va APP_VERSION cua Z:\1\app.py voi chuoi duoi day.
-APP_VERSION = "src-2026-08-27T18:12 (ui == app.py v1.7.1)"
+APP_VERSION = "src-2026-08-30T14:00 (ui == app.py v1.7.1)"
 app = FastAPI(title="Plastic Pricing", version=APP_VERSION, docs_url="/api/docs")
 
 
@@ -116,6 +116,9 @@ class CalcRequest(BaseModel):
     tolerance_width: Measure = Field(default_factory=lambda: Measure(value=0.0, unit="มม."))
     tolerance_length: Measure = Field(default_factory=lambda: Measure(value=0.0, unit="มม."))
     tolerance_thickness: Measure = Field(default_factory=lambda: Measure(value=0.0, unit="มม."))
+    tolerance_gusset_left: Measure = Field(default_factory=lambda: Measure(value=0.0, unit="มม."))
+    tolerance_gusset_right: Measure = Field(default_factory=lambda: Measure(value=0.0, unit="มม."))
+    special_requirements: str = ""
 
 
 class DrawingRequest(BaseModel):
@@ -230,6 +233,54 @@ class SaveRequest(BaseModel):
     product_reference: str = ""
     product_image_path: str = ""
     revised_from_ref: str = ""
+
+
+class CoaSaveRequest(BaseModel):
+    id: int | None = None
+    status: Literal["DRAFT", "WAITING_FOR_INSPECTION", "WAITING_FOR_APPROVAL", "FINAL"] = "DRAFT"
+    quote_ref: str
+    po_no: str = ""
+    lot_no: str = ""
+    production_date: date | None = None
+    inspection_date: date | None = None
+    issue_date: date | None = None
+    quantity: str = ""
+    material: str = "POLYETHYLENE"
+    color: str = "-"
+    printing: str = "-"
+    width_tolerance_mm: float = 10
+    length_tolerance_mm: float = 10
+    thickness_tolerance_mm: float = 0.01
+    actual_width_mm: float | None = None
+    actual_length_mm: float | None = None
+    actual_thickness_mm: float | None = None
+    result: Literal["", "PASS", "FAIL"] = ""
+    remarks: str = ""
+    checked_by: str = ""
+    approved_by: str = ""
+
+
+class SampleMeasurement(BaseModel):
+    width: float | None = None
+    length: float | None = None
+    thickness: float | None = None
+    gusset_left: float | None = None
+    gusset_right: float | None = None
+
+
+class SampleInspectionSaveRequest(BaseModel):
+    id: int | None = None
+    quote_ref: str
+    inspection_date: date
+    tolerance_width_mm: float
+    tolerance_length_mm: float
+    tolerance_thickness_mm: float
+    tolerance_gusset_left_mm: float = 0
+    tolerance_gusset_right_mm: float = 0
+    measurements: list[SampleMeasurement] = Field(default_factory=list)
+    remarks: str = ""
+    checked_by: str = ""
+    approved_by: str = ""
 
 
 # --------------------------------------------------------------------------- #
@@ -432,7 +483,15 @@ def human_summary(req: CalcRequest, res: Any, normalized: dict[str, Any]) -> str
             "จำนวน / Items = " + n(res.items_per_kg, 2) + "/kg  »  "
             "ราคา / Price = " + n(res.calculated_price_per_piece_from_kg) + " THB/item"
         )
-    if req.thickness.mode == "pair":
+    if key == "opaque":
+        thickness_text = (
+            "("
+            + g(thickness_mm)
+            + "/10) × "
+            + g(density)
+            + " [Plastic Sheet: หนึ่งแผ่น/ด้านเดียว, ไม่คูณ 2 / single layer, no ×2]"
+        )
+    elif req.thickness.mode == "pair":
         thickness_text = (
             "(" + g(thickness_mm) + "/10) × " + g(density)
             + " [Per Pair: ใช้ความหนารวมโดยตรง, ไม่คูณ 2 / no extra ×2]"
@@ -581,8 +640,6 @@ async def require_signed_in(request: Request, call_next):
 app.include_router(routes_auth.router)
 app.include_router(routes_bridge.router)
 app.include_router(releases.router)
-
-
 
 
 @app.exception_handler(HTTPException)
@@ -1210,9 +1267,16 @@ def api_quotation_form(quote_ref: str) -> dict[str, Any]:
             "mesh_gsm": number("mesh_gsm") or "80",
             "weight_formula": str(formulas.get("weight") or ""),
             "price_formula": str(formulas.get("price") or ""),
+            "tolerance_width": measure("tolerance_width", "มม.")["value"],
+            "tolerance_length": measure("tolerance_length", "มม.")["value"],
+            "tolerance_thickness": measure("tolerance_thickness", "มม.")["value"],
+            "tolerance_gusset_left": measure("tolerance_gusset_left", "มม.")["value"],
+            "tolerance_gusset_right": measure("tolerance_gusset_right", "มม.")["value"],
+            "special_requirements": str(inputs.get("special_requirements") or ""),
         },
         "ref_text": (
-            "กำลังแก้ไข / Editing: " + str(row["quote_ref"])
+            "กำลังแก้ไข / Editing: "
+            + str(row["quote_ref"])
             + " (เก็บเป็นฉบับใหม่ / Save as revision)"
         ),
         "status": (
@@ -1276,6 +1340,7 @@ def api_drawing_html(req: DrawingRequest) -> dict[str, Any]:
 
 class DrawingSaveRequest(BaseModel):
     doc_no: str = ""
+    quote_ref: str = ""
     drawing_date: str
     revision: str = "A"
     customer: str = ""
@@ -1313,6 +1378,7 @@ def api_drawing_save(req: DrawingSaveRequest, request: Request) -> dict[str, Any
     try:
         record = {
             "doc_no": req.doc_no,
+            "quote_ref": req.quote_ref.strip(),
             "drawing_date": req.drawing_date,
             "revision": req.revision.strip() or "A",
             "customer": req.customer.strip(),
@@ -1391,6 +1457,7 @@ def api_drawing_get(doc_no: str) -> dict[str, Any]:
         "doc_no": row["doc_no"],
         "form": {
             "doc_no": row["doc_no"],
+            "quote_ref": row["quote_ref"] or "",
             "date": str(row["drawing_date"]),
             "revision": row["revision"] or "A",
             "customer": row["customer"],
@@ -1463,6 +1530,360 @@ def api_planning_sources(q: str = "", limit: int = Query(default=12, ge=1, le=50
     return {"rows": [{**row, "line": _source_line(row)} for row in rows]}
 
 
+def _within(actual: float, nominal: float, tolerance: float) -> bool:
+    """Inclusive on both limits, with a hair of slack for floating point.
+
+    0.17 - 0.16 is 0.010000000000000009 in IEEE-754 and a bare `<= 0.01` would
+    FAIL a bag the micrometer says is exactly on its limit. 1e-9 mm is a
+    millionth of a micron - nothing real lives there. The screen's
+    lib/inspection.ts judges the same way.
+    """
+    return abs(actual - nominal) <= tolerance + 1e-9
+
+
+def _coa_source(quote: dict[str, Any]) -> dict[str, Any]:
+    inputs = quote["inputs_json"]
+    normalized = inputs.get("normalized", {})
+    results = quote["results_json"]
+    thickness = inputs.get("thickness", {})
+    return {
+        "quote_ref": quote["quote_ref"],
+        "customer": quote["customer"],
+        "customer_code": quote["customer_code"],
+        "part_no": quote["product_reference"],
+        "product": quote["item_description"] or quote["product_label"],
+        "size_text": quote["size_text"],
+        "width_mm": float(normalized.get("width_cm", 0) or 0) * 10,
+        # The QUOTED length, not the material length: a 12-inch bag is inspected at 304.8 mm;
+        # the 10 mm bottom allowance is the factory's, not the customer's (CEO COA sample, 2026-08-28).
+        "length_mm": float(normalized.get("length_cm", 0) or 0) * 10,
+        "thickness_mm": thickness_to_mm(
+            float(thickness.get("value", 0) or 0), thickness.get("unit", "มม.")
+        ),
+        "thickness_mode": thickness.get("mode", "pair"),
+        "line": _source_line(quote),
+        "special_requirements": str(inputs.get("special_requirements") or ""),
+    }
+
+
+def _sample_source(quote: dict[str, Any]) -> dict[str, Any]:
+    source = _coa_source(quote)
+    inputs, normalized = quote["inputs_json"], quote["inputs_json"].get("normalized", {})
+
+    def dim_tol(name: str) -> float:
+        value = inputs.get(name, {}) or {}
+        return (
+            float(value.get("value", 0) or 0)
+            * DIMENSION_FACTORS_TO_CM.get(value.get("unit", "มม."), 0.1)
+            * 10
+        )
+
+    thick = inputs.get("tolerance_thickness", {}) or {}
+    width_input, length_input = inputs.get("width", {}) or {}, inputs.get("length", {}) or {}
+    gusset_input = inputs.get("gusset", {}) or {}
+    source.update(
+        {
+            "product_key": quote["product_key"],
+            "gusset_mm": float(normalized.get("gusset_cm", 0) or 0) * 10,
+            "tolerance_width_mm": dim_tol("tolerance_width"),
+            "tolerance_length_mm": dim_tol("tolerance_length"),
+            "tolerance_thickness_mm": float(thick.get("value", 0) or 0)
+            * THICKNESS_FACTORS_TO_MM.get(thick.get("unit", "มม."), 1),
+            "tolerance_gusset_left_mm": dim_tol("tolerance_gusset_left"),
+            "tolerance_gusset_right_mm": dim_tol("tolerance_gusset_right"),
+            "width_original": {
+                "value": width_input.get("value", 0),
+                "unit": width_input.get("unit", "มม."),
+            },
+            "length_original": {
+                "value": length_input.get("value", 0),
+                "unit": length_input.get("unit", "มม."),
+            },
+            "gusset_original": {
+                "value": gusset_input.get("value", 0),
+                "unit": gusset_input.get("unit", width_input.get("unit", "มม.")),
+            },
+            "tolerance_width_original": inputs.get("tolerance_width", {})
+            or {"value": 0, "unit": "มม."},
+            "tolerance_length_original": inputs.get("tolerance_length", {})
+            or {"value": 0, "unit": "มม."},
+            "tolerance_thickness_original": thick,
+            "thickness_original": inputs.get("thickness", {})
+            or {"value": source["thickness_mm"], "unit": "มม."},
+        }
+    )
+    return source
+
+
+@app.get("/api/sample-inspections/sources")
+def api_sample_sources(q: str = "", limit: int = Query(default=20, ge=1, le=100)) -> dict[str, Any]:
+    return {
+        "rows": [
+            _sample_source(db.get_quotation(r["quote_ref"]))
+            for r in db.find_quotations(q.strip(), limit)
+        ]
+    }
+
+
+@app.get("/api/sample-inspections")
+def api_sample_list(limit: int = Query(default=200, ge=1, le=1000)) -> dict[str, Any]:
+    return {"rows": db.list_sample_inspections(limit)}
+
+
+@app.post("/api/sample-inspections")
+def api_sample_save(req: SampleInspectionSaveRequest) -> dict[str, Any]:
+    quote = db.get_quotation(req.quote_ref.strip())
+    if not quote:
+        raise HTTPException(status_code=404, detail="ไม่พบใบเสนอราคาอ้างอิง / Quotation not found")
+    source, results, checks = _sample_source(quote), [], []
+    specs = {
+        "width": (source["width_mm"], req.tolerance_width_mm),
+        "length": (source["length_mm"], req.tolerance_length_mm),
+        "thickness": (source["thickness_mm"], req.tolerance_thickness_mm),
+        "gusset_left": (source["gusset_mm"], req.tolerance_gusset_left_mm),
+        "gusset_right": (source["gusset_mm"], req.tolerance_gusset_right_mm),
+    }
+    for measurement in req.measurements[:3]:
+        values, item_results = measurement.model_dump(), {}
+        for key, value in values.items():
+            if value is None or (key.startswith("gusset") and source["product_key"] != "gusset"):
+                item_results[key] = ""
+            else:
+                nominal, tolerance = specs[key]
+                ok = _within(float(value), nominal, tolerance)
+                item_results[key] = "PASS" if ok else "FAIL"
+                checks.append(ok)
+        results.append({**values, "results": item_results})
+    overall = "" if not checks else ("PASS" if all(checks) else "FAIL")
+    display_json = {
+        key: source[key]
+        for key in (
+            "width_original",
+            "length_original",
+            "gusset_original",
+            "thickness_original",
+            "tolerance_width_original",
+            "tolerance_length_original",
+            "tolerance_thickness_original",
+        )
+    }
+    row = db.save_sample_inspection(
+        {
+            **req.model_dump(exclude={"measurements"}),
+            "results_json": results,
+            "display_json": display_json,
+            "overall_result": overall,
+            "customer": source["customer"],
+            "customer_code": source["customer_code"],
+            "part_no": source["part_no"],
+            "product": source["product"],
+            "product_key": source["product_key"],
+            "width_mm": source["width_mm"],
+            "length_mm": source["length_mm"],
+            "thickness_mm": source["thickness_mm"],
+            "thickness_mode": source["thickness_mode"],
+            "gusset_mm": source["gusset_mm"],
+        }
+    )
+    return {"row": row}
+
+
+@app.delete("/api/sample-inspections/{report_id}")
+def api_sample_delete(report_id: int) -> dict[str, Any]:
+    if not db.delete_sample_inspection(report_id):
+        raise HTTPException(status_code=404, detail="Sample Inspection Report not found")
+    return {"deleted": report_id}
+
+
+@app.get("/api/sample-inspections/{report_id}/print")
+def api_sample_print(report_id: int) -> dict[str, str]:
+    import html as h
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    r = db.get_sample_inspection(report_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="Sample Inspection Report not found")
+    display = r.get("display_json") or {}
+    chars = [
+        (
+            "Width",
+            "width",
+            r["width_mm"],
+            r["tolerance_width_mm"],
+            display.get("width_original", {}),
+            False,
+        ),
+        (
+            "Length",
+            "length",
+            r["length_mm"],
+            r["tolerance_length_mm"],
+            display.get("length_original", {}),
+            False,
+        ),
+        (
+            "Thickness",
+            "thickness",
+            r["thickness_mm"],
+            r["tolerance_thickness_mm"],
+            display.get("thickness_original", {}),
+            True,
+        ),
+    ]
+    if r["product_key"] == "gusset":
+        chars += [
+            (
+                "Gusset Left",
+                "gusset_left",
+                r["gusset_mm"],
+                r["tolerance_gusset_left_mm"],
+                display.get("gusset_original", {}),
+                False,
+            ),
+            (
+                "Gusset Right",
+                "gusset_right",
+                r["gusset_mm"],
+                r["tolerance_gusset_right_mm"],
+                display.get("gusset_original", {}),
+                False,
+            ),
+        ]
+    body = ""
+    for name, key, nominal, tol, original, is_thickness in chars:
+        unit = str(original.get("unit") or "มม.")
+        original_value = float(original.get("value") or nominal)
+        factor = (
+            THICKNESS_FACTORS_TO_MM.get(unit, 1)
+            if is_thickness
+            else DIMENSION_FACTORS_TO_CM.get(unit, 0.1) * 10
+        )
+        original_tol = float(tol) / factor
+        nominal_text = f"{original_value:g} {unit} → {float(nominal):g} mm"
+        limits_text = f"{original_value-original_tol:g} - {original_value+original_tol:g} {unit} → {float(nominal)-float(tol):g} - {float(nominal)+float(tol):g} mm"
+        values = []
+        for sample in r["results_json"]:
+            value, result = sample.get(key), sample.get("results", {}).get(key, "")
+            values.append(
+                ("" if value is None else format(float(value), "g"))
+                + (f" ({result})" if result else "")
+            )
+        values += [""] * (3 - len(values))
+        body += f"<tr><td>{name}</td><td>{h.escape(nominal_text)}</td><td>{h.escape(limits_text)}</td><td>{h.escape(values[0])}</td><td>{h.escape(values[1])}</td><td>{h.escape(values[2])}</td></tr>"
+    page = f"""<!doctype html><meta charset='utf-8'><title>{h.escape(r['report_no'])}</title><style>@page{{size:A4;margin:10mm}}body{{font:11px Arial;color:#172033}}h1{{font-size:21px;color:#13294b;margin:0}}h2{{text-align:center}}table{{width:100%;border-collapse:collapse;margin:8px 0}}th,td{{border:1px solid #667085;padding:6px}}th{{background:#eef3f8}}.head{{border-bottom:3px solid #ef172f;padding:7px}}@media print{{button{{display:none}}}}</style><div class='head'><h1>PANTONG THAI PACK CO., LTD.</h1></div><h2>SAMPLE INSPECTION REPORT</h2><table><tr><th>Report No.</th><td>{h.escape(r['report_no'])}</td><th>Date</th><td>{r['inspection_date']}</td></tr><tr><th>Customer</th><td>{h.escape(r['customer'])}</td><th>Customer Code</th><td>{h.escape(r['customer_code'])}</td></tr><tr><th>Product</th><td>{h.escape(r['product'])}</td><th>Part No.</th><td>{h.escape(r['part_no'])}</td></tr></table><table><tr><th>Characteristic</th><th>Unit</th><th>Nominal</th><th>Specification limits</th><th>Sample 1</th><th>Sample 2</th><th>Sample 3</th></tr>{body}</table><table><tr><th>Overall Result</th><td><b>{r['overall_result'] or 'WAITING FOR RESULT'}</b></td></tr><tr><th>Remarks</th><td>{h.escape(r['remarks'])}</td></tr><tr><th>Checked by</th><td>{h.escape(r['checked_by'])}</td><th>Approved by</th><td>{h.escape(r['approved_by'])}</td></tr></table><button onclick='window.print()'>Print / Save PDF</button><button onclick='history.back()'>Back</button>"""
+    page = page.replace(
+        "<th>Characteristic</th><th>Unit</th><th>Nominal</th><th>Specification limits</th><th>Sample 1</th><th>Sample 2</th><th>Sample 3</th>",
+        "<th>Characteristic</th><th>Nominal (Quoted → mm)</th><th>Specification limits (Quoted → mm)</th><th>Sample 1 (mm)</th><th>Sample 2 (mm)</th><th>Sample 3 (mm)</th>",
+    )
+    stamp = datetime.now(ZoneInfo("Asia/Bangkok")).strftime("%d/%m/%Y %H:%M:%S")
+    page += f"<div style='position:fixed;bottom:2mm;left:0;right:0;border-top:1px solid #999;padding-top:3px;font-size:9px;display:flex;justify-content:space-between'><span>PANTONG THAI PACK CO., LTD. • {h.escape(r['report_no'])}</span><span>Printed: {stamp} • Page 1 of 1</span></div>"
+    return {"html": page}
+
+
+@app.get("/api/coa/sources")
+def api_coa_sources(q: str = "", limit: int = Query(default=20, ge=1, le=100)) -> dict[str, Any]:
+    rows = db.find_quotations(q.strip(), limit)
+    # The superset row: a COA must inherit the tolerances the quotation fixed
+    # (CEO rule 2026-08-30: acceptance criteria originate in pricing, later
+    # steps read them), so it gets the same source line Sample Inspection does.
+    return {"rows": [_sample_source(db.get_quotation(r["quote_ref"])) for r in rows]}
+
+
+@app.get("/api/coa")
+def api_coa_list(limit: int = Query(default=200, ge=1, le=1000)) -> dict[str, Any]:
+    return {"rows": db.list_coas(limit)}
+
+
+@app.post("/api/coa")
+def api_coa_save(req: CoaSaveRequest) -> dict[str, Any]:
+    quote = db.get_quotation(req.quote_ref.strip())
+    if not quote:
+        raise HTTPException(status_code=404, detail="ไม่พบใบเสนอราคาอ้างอิง / Quotation not found")
+    source = _coa_source(quote)
+    if min(source["width_mm"], source["length_mm"], source["thickness_mm"]) <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="ใบเสนอราคาไม่มีขนาดครบสำหรับ COA / Source dimensions are incomplete",
+        )
+    actuals = (req.actual_width_mm, req.actual_length_mm, req.actual_thickness_mm)
+    automatic_result = req.result
+    if all(value is not None for value in actuals):
+        automatic_result = (
+            "PASS"
+            if (
+                _within(float(req.actual_width_mm), source["width_mm"], req.width_tolerance_mm)
+                and _within(float(req.actual_length_mm), source["length_mm"], req.length_tolerance_mm)
+                and _within(
+                    float(req.actual_thickness_mm), source["thickness_mm"], req.thickness_tolerance_mm
+                )
+            )
+            else "FAIL"
+        )
+    if req.status == "FINAL" and not (
+        req.lot_no and req.inspection_date and req.result and req.checked_by and req.approved_by
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="FINAL ต้องมี Lot, Inspection Date, Result, Checked by และ Approved by",
+        )
+    row = db.save_coa(
+        {
+            **req.model_dump(),
+            "result": automatic_result,
+            "customer": source["customer"],
+            "customer_code": source["customer_code"],
+            "part_no": source["part_no"],
+            "product": source["product"],
+            "width_mm": source["width_mm"],
+            "length_mm": source["length_mm"],
+            "thickness_mm": source["thickness_mm"],
+            "thickness_mode": source["thickness_mode"],
+            "created_by": "",
+        }
+    )
+    return {"row": row}
+
+
+@app.delete("/api/coa/{coa_id}")
+def api_coa_delete(coa_id: int) -> dict[str, Any]:
+    outcome = db.delete_coa(coa_id)
+    if outcome == "missing":
+        raise HTTPException(status_code=404, detail="COA not found")
+    if outcome == "final":
+        raise HTTPException(
+            status_code=409,
+            detail="COA ที่ออกเลขที่แล้ว (FINAL) ลบไม่ได้ ให้ทำ Revision แทน / A FINAL COA cannot be deleted; revise it instead",
+        )
+    return {"deleted": coa_id}
+
+
+@app.get("/api/coa/{coa_id}/print")
+def api_coa_print(coa_id: int) -> dict[str, str]:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    c = db.get_coa(coa_id)
+    if not c:
+        raise HTTPException(status_code=404, detail="COA not found")
+    fmt = lambda v: "" if v is None else format(float(v), "g")
+    limits = lambda n, t: f"{float(n)-float(t):g} - {float(n)+float(t):g}"
+    passed, failed = (
+        ("☒", "☐")
+        if c["result"] == "PASS"
+        else (("☐", "☒") if c["result"] == "FAIL" else ("☐", "☐"))
+    )
+    mode = "pair" if c["thickness_mode"] == "pair" else "side"
+    stamp = datetime.now(ZoneInfo("Asia/Bangkok")).strftime("%d/%m/%Y %H:%M:%S")
+    html = f"""<!doctype html><html><head><meta charset='utf-8'><title>{c['certificate_no'] or 'DRAFT COA'}</title><style>
+@page{{size:A4;margin:10mm}}*{{box-sizing:border-box}}body{{font:11px Arial,sans-serif;color:#172033;margin:0}}.head{{display:flex;align-items:center;border-bottom:3px solid #e11d2e;padding-bottom:6px}}.lotus{{color:#ef172f;font-size:38px;font-weight:bold;margin-right:7px}}h1{{font-size:22px;margin:0;color:#13294b}}.sub{{font-size:10px}}h2{{text-align:center;font-size:18px;margin:9px 0}}table{{border-collapse:collapse;width:100%;margin:6px 0}}td,th{{border:1px solid #586273;padding:5px}}th{{background:#eef3f8;text-align:center}}.label{{font-weight:bold;width:18%}}.result{{font-size:15px;font-weight:bold;text-align:center}}.sign td{{height:48px;vertical-align:bottom}}.note{{font-size:9px;color:#4b5563}}@media print{{button{{display:none}}}}</style></head><body>
+<div class='head'><div class='lotus'><svg width='48' height='40' viewBox='0 0 96 80' aria-label='Pantong lotus logo'><g fill='#ef172f'><path d='M48 3C36 19 34 35 48 52C62 35 60 19 48 3Z'/><path d='M8 24C10 45 22 58 45 57C38 36 26 26 8 24Z'/><path d='M88 24C86 45 74 58 51 57C58 36 70 26 88 24Z'/><path d='M20 54C31 72 47 77 48 77C45 60 37 52 20 54Z'/><path d='M76 54C65 72 49 77 48 77C51 60 59 52 76 54Z'/></g></svg></div><div><h1>PANTONG THAI PACK CO., LTD.</h1><div class='sub'>CERTIFICATE OF ANALYSIS • QUALITY ASSURANCE</div></div></div><h2>CERTIFICATE OF ANALYSIS (COA)</h2>
+<table><tr><td class='label'>Certificate No.</td><td>{c['certificate_no'] or 'DRAFT — assigned at FINAL'}</td><td class='label'>Issue Date</td><td>{c['issue_date'] or ''}</td></tr><tr><td class='label'>Customer</td><td>{c['customer']}</td><td class='label'>PO No.</td><td>{c['po_no']}</td></tr><tr><td class='label'>Product</td><td>{c['product']}</td><td class='label'>Part No.</td><td>{c['part_no']}</td></tr><tr><td class='label'>Lot / Batch No.</td><td>{c['lot_no']}</td><td class='label'>Quantity</td><td>{c['quantity']}</td></tr><tr><td class='label'>Production Date</td><td>{c['production_date'] or ''}</td><td class='label'>Inspection Date</td><td>{c['inspection_date'] or ''}</td></tr><tr><td class='label'>Material</td><td>{c['material']}</td><td class='label'>Color / Printing</td><td>{c['color']} / {c['printing']}</td></tr></table>
+<table><tr><th>Characteristic</th><th>Unit</th><th>Nominal</th><th>Specification limits</th><th>Actual result</th></tr><tr><td>Width</td><td>mm</td><td>{fmt(c['width_mm'])}</td><td>{limits(c['width_mm'],c['width_tolerance_mm'])}</td><td>{fmt(c['actual_width_mm'])}</td></tr><tr><td>Length (Opening to Bottom)</td><td>mm</td><td>{fmt(c['length_mm'])}</td><td>{limits(c['length_mm'],c['length_tolerance_mm'])}</td><td>{fmt(c['actual_length_mm'])}</td></tr><tr><td>Thickness per {mode}</td><td>mm/{mode}</td><td>{fmt(c['thickness_mm'])}</td><td>{limits(c['thickness_mm'],c['thickness_tolerance_mm'])}</td><td>{fmt(c['actual_thickness_mm'])}</td></tr></table>
+<table><tr><th>Acceptance criteria</th><th style='width:34%'>Disposition</th></tr><tr><td>Width and length within stated tolerances. Thickness within stated tolerance per {mode}. Product shall conform to the approved drawing and agreed requirements.</td><td class='result'>{passed} PASS&nbsp;&nbsp;&nbsp;&nbsp;{failed} FAIL</td></tr><tr><td colspan='2'><b>Remarks:</b> {c['remarks']}</td></tr></table><table class='sign'><tr><td><b>Checked by:</b> {c['checked_by']}</td><td><b>Approved by:</b> {c['approved_by']}</td></tr></table><p class='note'>Source quotation: {c['quote_ref']} • Revision {c['revision']}. Empty actual-result fields mean no inspection value was entered; no result has been assumed.</p><div style='position:fixed;bottom:2mm;left:0;right:0;border-top:1px solid #999;padding-top:3px;font-size:9px;display:flex;justify-content:space-between'><span>PANTONG THAI PACK CO., LTD. • {c['certificate_no'] or 'DRAFT'}</span><span>Printed: {stamp} • Page 1 of 1</span></div><button onclick='window.print()'>Print / Save PDF</button><button onclick='history.back()'>Back</button></body></html>"""
+    return {"html": html}
+
+
 @app.get("/api/planning/source")
 def api_planning_source(selected: str = "") -> dict[str, Any]:
     """Resolve one picked/typed/pasted line into the planning prefill.
@@ -1493,6 +1914,28 @@ def api_planning_source(selected: str = "") -> dict[str, Any]:
     results = quote["results_json"]
     normalized = inputs.get("normalized", {})
     pack_quantity = inputs.get("pack_quantity", 0)
+    sack_quantity = inputs.get("sack_quantity", 0)
+
+    def dim_tol_mm(name: str) -> float:
+        value = inputs.get(name, {}) or {}
+        return (
+            float(value.get("value", 0) or 0)
+            * DIMENSION_FACTORS_TO_CM.get(value.get("unit", "มม."), 0.1)
+            * 10
+        )
+
+    thick_tol = inputs.get("tolerance_thickness", {}) or {}
+    tolerance_thickness_mm = float(thick_tol.get("value", 0) or 0) * THICKNESS_FACTORS_TO_MM.get(
+        thick_tol.get("unit", "มม."), 1
+    )
+    grams = float(quote["grams_per_item"] or 0)
+    items_per_kg = float(results.get("items_per_kg", 0) or (1000 / grams if grams else 0))
+    adjusted_items = float(results.get("production_items_per_kg", 0) or 0)
+    drawing = store.get_latest_drawing_for_quote(str(quote["quote_ref"]))
+    drawing_spec = (drawing or {}).get("spec_json") or {}
+    width_input = inputs.get("width", {}) or {}
+    length_input = inputs.get("length", {}) or {}
+    thickness_input = inputs.get("thickness", {}) or {}
     return {
         "quote_ref": quote["quote_ref"],
         "line": _source_line(quote),
@@ -1506,14 +1949,65 @@ def api_planning_source(selected: str = "") -> dict[str, Any]:
         "gusset": format(float(normalized.get("gusset_cm", 0)), "g"),
         "package": (format(float(pack_quantity), "g") + " ชิ้น/แพ็ก") if pack_quantity else "",
         "quantity": format(float(inputs.get("order_quantity", 0)), "g"),
+        "product_key": quote["product_key"],
+        "sack_quantity": format(float(sack_quantity), "g") if sack_quantity else "",
+        "sack_weight_kg": (
+            format(grams * float(sack_quantity) / 1000, ".4f") if sack_quantity else ""
+        ),
+        "grams_per_item": format(grams, ".3f"),
+        "items_per_kg": format(items_per_kg, ".2f"),
+        "adjusted_items": format(adjusted_items, ".2f"),
+        "tolerance_width_mm": format(dim_tol_mm("tolerance_width"), "g"),
+        "tolerance_length_mm": format(dim_tol_mm("tolerance_length"), "g"),
+        "tolerance_thickness_mm": format(tolerance_thickness_mm, "g"),
+        "tolerance_gusset_left_mm": format(dim_tol_mm("tolerance_gusset_left"), "g"),
+        "tolerance_gusset_right_mm": format(dim_tol_mm("tolerance_gusset_right"), "g"),
+        "drawing_doc_no": str((drawing or {}).get("doc_no") or ""),
+        "special_features": str(inputs.get("special_requirements") or ""),
+        "sales_product": str(quote.get("item_description") or quote.get("product_label") or ""),
+        "sales_part_no": str(quote.get("product_reference") or ""),
+        "sales_size": str(quote.get("size_text") or ""),
+        "sales_width": (
+            format(float(width_input.get("value", 0) or 0), "g")
+            + " "
+            + str(width_input.get("unit") or "")
+        ),
+        "sales_length": (
+            format(float(length_input.get("value", 0) or 0), "g")
+            + " "
+            + str(length_input.get("unit") or "")
+        ),
+        "sales_thickness": (
+            format(float(thickness_input.get("value", 0) or 0), "g")
+            + " "
+            + str(thickness_input.get("unit") or "")
+        ),
+        "sales_thickness_mode": (
+            "ต่อคู่ / Per Pair"
+            if thickness_input.get("mode", "pair") == "pair"
+            else "ต่อด้าน / Per Side"
+        ),
+        "sale_basis": str(inputs.get("sale_basis") or quote.get("sale_basis") or "piece"),
+        "small_pack_quantity": format(float(pack_quantity), "g") if pack_quantity else "",
+        "package_count_per_sack": (
+            format(float(sack_quantity) / float(pack_quantity), "g")
+            if pack_quantity and sack_quantity
+            else ""
+        ),
         "summary": (
-            str(quote["quote_ref"]) + " • " + str(quote["customer_code"]) + " • "
-            + str(quote["customer"]) + " • "
-            + str(quote["item_description"] or quote["product_label"]) + " • "
+            str(quote["quote_ref"])
+            + " • "
+            + str(quote["customer_code"])
+            + " • "
+            + str(quote["customer"])
+            + " • "
+            + str(quote["item_description"] or quote["product_label"])
+            + " • "
             + str(quote["size_text"])
         ),
         "status": (
-            "รับข้อมูลใบราคา " + str(quote["quote_ref"])
+            "รับข้อมูลใบราคา "
+            + str(quote["quote_ref"])
             + " เข้าหน้าวางแผนแล้ว / Pricing data loaded into Planning"
         ),
     }
@@ -1526,6 +2020,7 @@ class PlanningCompareRequest(BaseModel):
     length: str = ""
     thickness: str = ""
     gusset: str = ""
+    sack_quantity: str = ""
 
 
 @app.post("/api/planning/compare")
@@ -1542,6 +2037,7 @@ def api_planning_compare(req: PlanningCompareRequest) -> dict[str, Any]:
         new_length = as_float_thai(req.length, "ความยาว", allow_zero=False)
         new_thickness = as_float_thai(req.thickness, "ความหนา", allow_zero=False)
         new_gusset = as_float_thai(req.gusset, "พับข้าง")
+        sack_quantity = as_float_thai(req.sack_quantity, "จำนวนใบต่อกระสอบ")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     inputs = quote["inputs_json"]
@@ -1565,13 +2061,30 @@ def api_planning_compare(req: PlanningCompareRequest) -> dict[str, Any]:
     new_grams = ref_grams * ratio
     ref_kg = ref_grams * quantity / 1000
     new_kg = new_grams * quantity / 1000
+    items_per_kg = 1000 / new_grams
+    deduction = (
+        float(inputs.get("deduction_percent", 0) or 0) if inputs.get("apply_deduction", True) else 0
+    )
+    adjusted_items = items_per_kg * (1 - deduction / 100)
     return {
         "line": (
-            format(quantity, ",.0f") + " ใบ / pcs • อ้างอิง " + format(ref_kg, ",.3f")
-            + " กก. (" + format(ref_grams, ",.3f") + " g/ใบ) » ใหม่ "
-            + format(new_kg, ",.3f") + " กก. (" + format(new_grams, ",.3f")
-            + " g/ใบ) • ต่าง " + format(new_kg - ref_kg, "+,.3f") + " กก."
-        )
+            format(quantity, ",.0f")
+            + " ใบ / pcs • อ้างอิง "
+            + format(ref_kg, ",.3f")
+            + " กก. ("
+            + format(ref_grams, ",.3f")
+            + " g/ใบ) » ใหม่ "
+            + format(new_kg, ",.3f")
+            + " กก. ("
+            + format(new_grams, ",.3f")
+            + " g/ใบ) • ต่าง "
+            + format(new_kg - ref_kg, "+,.3f")
+            + " กก."
+        ),
+        "grams_per_item": format(new_grams, ".3f"),
+        "items_per_kg": format(items_per_kg, ".2f"),
+        "adjusted_items": format(adjusted_items, ".2f"),
+        "sack_weight_kg": format(new_grams * sack_quantity / 1000, ".4f") if sack_quantity else "",
     }
 
 
@@ -1584,6 +2097,37 @@ class WorkOrderRequest(BaseModel):
     gusset: str = ""
     package: str = ""
     notes: str = ""
+    drawing_doc_no: str = ""
+    special_features: str = ""
+    sack_quantity: str = ""
+    sack_weight: str = ""
+    tolerance_width: str = ""
+    tolerance_length: str = ""
+    tolerance_thickness: str = ""
+    tolerance_gusset_left: str = ""
+    tolerance_gusset_right: str = ""
+    grams_per_item: str = ""
+    items_per_kg: str = ""
+    adjusted_items: str = ""
+    sale_basis: Literal["piece", "kg"] = "piece"
+    package_style: str = ""
+    small_pack_quantity: str = ""
+    package_count_per_sack: str = ""
+    total_package_quantity: str = ""
+    small_pack_weight: str = ""
+    width_limits: str = ""
+    length_limits: str = ""
+    thickness_limits: str = ""
+    gusset_limits: str = ""
+    standard_sack_weight: str = ""
+    maximum_sack_weight: str = ""
+    comparison_quantity_pcs: str = ""
+    quoted_same_quantity_weight: str = ""
+    production_same_quantity_weight: str = ""
+    acceptable_same_quantity_weight: str = ""
+    same_quantity_weight_difference: str = ""
+    customer_spec_thickness: str = ""
+    production_order_thickness: str = ""
 
 
 @app.post("/api/work-orders/html")
@@ -1591,6 +2135,8 @@ def api_work_order_html(req: WorkOrderRequest) -> dict[str, Any]:
     """The shop-floor sheet, exactly as print_work_order writes it
     (app.py:1384-1415) - same table, same colours, same print button."""
     import html as html_mod
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
 
     label = (
         "แผนกเป่า / Blown-film Department"
@@ -1598,25 +2144,190 @@ def api_work_order_html(req: WorkOrderRequest) -> dict[str, Any]:
         else "แผนกตัดถุง / Bag-cutting Department"
     )
     rows = "".join(
-        "<tr><th>" + html_mod.escape(name) + "</th><td>"
-        + html_mod.escape(value or "—") + "</td></tr>"
+        "<tr><th>"
+        + html_mod.escape(name)
+        + "</th><td>"
+        + html_mod.escape(value or "—")
+        + "</td></tr>"
         for name, value in (
             ("ต้นทางใบราคา / Pricing Source", req.source.strip()),
+            ("แบบที่ลูกค้าอนุมัติ / Approved Drawing", req.drawing_doc_no.strip()),
             ("ความกว้างผลิต / Production Width", req.width.strip()),
             ("ความยาวผลิต / Production Length", req.length.strip()),
             ("ความหนาผลิต / Production Thickness", req.thickness.strip()),
             ("พับข้าง / Gusset", req.gusset.strip()),
             ("แพ็กเกจ / Packaging", req.package.strip()),
+            ("จำนวนใบต่อกระสอบ / Pcs per Sack", req.sack_quantity.strip()),
+            ("รูปแบบแพ็ค / Packing Style", req.package_style.strip()),
+            (
+                (
+                    "จำนวนใบต่อห่อ/พับ / Pcs per Pack/Fold"
+                    if req.sale_basis == "piece"
+                    else "น้ำหนักต่อห่อ/พับ / kg per Pack/Fold"
+                ),
+                req.small_pack_quantity.strip(),
+            ),
+            ("จำนวนห่อ/พับต่อกระสอบ / Packs/Folds per Sack", req.package_count_per_sack.strip()),
+            (
+                (
+                    "รวมใบต่อกระสอบ / Total Pcs per Sack"
+                    if req.sale_basis == "piece"
+                    else "รวมน้ำหนักต่อกระสอบ / Total kg per Sack"
+                ),
+                req.total_package_quantity.strip(),
+            ),
+            (
+                "น้ำหนักต่อห่อ/พับ / Pack/Fold Weight",
+                (req.small_pack_weight.strip() + " kg") if req.small_pack_weight.strip() else "",
+            ),
+            ("ช่วงความกว้างที่ยอมรับ / Width Acceptable Range", req.width_limits.strip()),
+            ("ช่วงความยาวที่ยอมรับ / Length Acceptable Range", req.length_limits.strip()),
+            ("ช่วงความหนาที่ยอมรับ / Thickness Acceptable Range", req.thickness_limits.strip()),
+            ("ช่วงพับข้างที่ยอมรับ / Gusset Acceptable Range", req.gusset_limits.strip()),
+            (
+                "น้ำหนักมาตรฐานต่อกระสอบ / Standard Sack Weight",
+                (
+                    (req.standard_sack_weight.strip() + " kg")
+                    if req.standard_sack_weight.strip()
+                    else ""
+                ),
+            ),
+            (
+                "น้ำหนักสูงสุดที่อนุญาต / Maximum Sack Weight",
+                (
+                    (req.maximum_sack_weight.strip() + " kg")
+                    if req.maximum_sack_weight.strip()
+                    else ""
+                ),
+            ),
+            (
+                "จำนวนใบที่ใช้เทียบน้ำหนัก / Comparison Quantity",
+                (
+                    (req.comparison_quantity_pcs.strip() + " pcs")
+                    if req.comparison_quantity_pcs.strip()
+                    else ""
+                ),
+            ),
+            (
+                "น้ำหนักตามสเปคขาย (จำนวนใบเท่ากัน) / Quoted Weight",
+                (
+                    (req.quoted_same_quantity_weight.strip() + " kg")
+                    if req.quoted_same_quantity_weight.strip()
+                    else ""
+                ),
+            ),
+            (
+                "น้ำหนักตามสเปคผลิต (จำนวนใบเท่ากัน) / Production Weight",
+                (
+                    (req.production_same_quantity_weight.strip() + " kg")
+                    if req.production_same_quantity_weight.strip()
+                    else ""
+                ),
+            ),
+            (
+                "ช่วงน้ำหนักยอมรับ (จำนวนใบเท่ากัน) / Acceptable Weight",
+                (
+                    (req.acceptable_same_quantity_weight.strip() + " kg")
+                    if req.acceptable_same_quantity_weight.strip()
+                    else ""
+                ),
+            ),
+            (
+                "ผลต่างน้ำหนัก / Weight Difference",
+                (
+                    (req.same_quantity_weight_difference.strip() + " kg")
+                    if req.same_quantity_weight_difference.strip()
+                    else ""
+                ),
+            ),
+            (
+                "ความหนาตามสเปคลูกค้า / Customer-Specified Thickness",
+                req.customer_spec_thickness.strip(),
+            ),
+            (
+                "ความหนาตามคำสั่งผลิต / Production-Order Thickness",
+                (
+                    (req.production_order_thickness.strip() + " mm")
+                    if req.production_order_thickness.strip()
+                    else ""
+                ),
+            ),
+            (
+                "น้ำหนักชั่งจริงหลังแพ็ค / Actual Packed Weight",
+                "________________ kg    ☐ PASS    ☐ FAIL",
+            ),
+            (
+                "น้ำหนักต่อกระสอบ / Sack Weight",
+                (req.sack_weight.strip() + " kg") if req.sack_weight.strip() else "",
+            ),
+            (
+                "ความคลาดเคลื่อนกว้าง / Width Tolerance",
+                ("±" + req.tolerance_width.strip() + " mm") if req.tolerance_width.strip() else "",
+            ),
+            (
+                "ความคลาดเคลื่อนยาว / Length Tolerance",
+                (
+                    ("±" + req.tolerance_length.strip() + " mm")
+                    if req.tolerance_length.strip()
+                    else ""
+                ),
+            ),
+            (
+                "ความคลาดเคลื่อนหนา / Thickness Tolerance",
+                (
+                    ("±" + req.tolerance_thickness.strip() + " mm")
+                    if req.tolerance_thickness.strip()
+                    else ""
+                ),
+            ),
+            (
+                "พับข้างซ้าย / Left Gusset Tolerance",
+                (
+                    ("±" + req.tolerance_gusset_left.strip() + " mm")
+                    if req.tolerance_gusset_left.strip()
+                    else ""
+                ),
+            ),
+            (
+                "พับข้างขวา / Right Gusset Tolerance",
+                (
+                    ("±" + req.tolerance_gusset_right.strip() + " mm")
+                    if req.tolerance_gusset_right.strip()
+                    else ""
+                ),
+            ),
+            (
+                "น้ำหนักต่อชิ้น / Weight per pc",
+                (req.grams_per_item.strip() + " g") if req.grams_per_item.strip() else "",
+            ),
+            (
+                "จำนวนทางทฤษฎี / Theoretical",
+                (req.items_per_kg.strip() + " pcs/kg") if req.items_per_kg.strip() else "",
+            ),
+            (
+                "จำนวนหลังหักเผื่อ / After Deduction",
+                (req.adjusted_items.strip() + " pcs/kg") if req.adjusted_items.strip() else "",
+            ),
             ("รายละเอียด / Notes", req.notes.strip()),
+            (
+                "ลักษณะพิเศษตามแบบอนุมัติ / Approved Special Characteristics",
+                req.special_features.strip(),
+            ),
         )
     )
     page = (
         "<!doctype html><meta charset='utf-8'><title>Work Order</title>"
-        "<style>body{font-family:Arial,sans-serif;margin:28px}table{width:100%;border-collapse:collapse}"
-        "th,td{border:1px solid #999;padding:9px;text-align:left}th{width:34%;background:#eef4f8}"
+        "<style>@page{size:A4 portrait;margin:10mm}body{font-family:Arial,sans-serif;margin:0;min-height:277mm}table{width:100%;border-collapse:collapse}"
+        "th,td{border:1px solid #999;padding:9px;text-align:left}td{white-space:pre-line}th{width:34%;background:#eef4f8}"
         "@media print{button{display:none}}</style>"
         "<h1>" + html_mod.escape(label) + "</h1><table>" + rows + "</table>"
         "<p><button onclick='window.print()'>พิมพ์ / Print</button></p>"
+    )
+    stamp = datetime.now(ZoneInfo("Asia/Bangkok")).strftime("%d/%m/%Y %H:%M:%S")
+    page += (
+        "<div style='position:fixed;bottom:2mm;left:0;right:0;border-top:1px solid #999;padding-top:3px;font-size:9px;display:flex;justify-content:space-between'><span>PANTONG THAI PACK CO., LTD. • Work Order</span><span>Printed: "
+        + stamp
+        + " • Page 1 of 1</span></div>"
     )
     return {"html": page}
 
@@ -1739,10 +2450,10 @@ def build_print_html(req: PrintRequest, out: dict[str, Any]) -> str:
     title = req.quote_ref.strip() or "ยังไม่บันทึก / Unsaved"
 
     return (
-        "<!doctype html><html lang=\"th\"><head><meta charset=\"utf-8\">"
+        '<!doctype html><html lang="th"><head><meta charset="utf-8">'
         "<title>" + html_mod.escape(title) + "</title><style>"
         "@page { size: A4; margin: 14mm; }"
-        "body{color:#172b3a;font:14px/1.45 \"Leelawadee UI\", \"Tahoma\", sans-serif;background:#eef3f7;margin:0}"
+        'body{color:#172b3a;font:14px/1.45 "Leelawadee UI", "Tahoma", sans-serif;background:#eef3f7;margin:0}'
         ".sheet{width:210mm;min-height:276mm;margin:12px auto;padding:14mm;background:#fff;box-shadow:0 2px 14px #8aa0b333}"
         "h1{color:#16324f;font-size:24px;margin:0}"
         ".subtitle{color:#516273;margin:4px 0 18px}"
@@ -1752,23 +2463,29 @@ def build_print_html(req: PrintRequest, out: dict[str, Any]) -> str:
         "th{width:44%;background:#f1f6fa;font-weight:700}"
         ".price th,.price td{border-color:#6f91ac}"
         ".note{margin-top:12px;padding:9px;border:1px solid #c7d3dd;background:#f8fafc;color:#445667}"
+        ".foot{position:fixed;bottom:2mm;left:0;right:0;border-top:1px solid #999;padding-top:3px;font-size:9px;display:flex;justify-content:space-between;color:#445667}"
         ".actions{position:sticky;top:0;padding:10px;text-align:center;background:#16324f}"
         "button{padding:9px 22px;border:0;border-radius:5px;background:#167d5a;color:#fff;font-weight:700;cursor:pointer}"
         "@media print{body{background:#fff}.sheet{margin:0;box-shadow:none}.no-print{display:none !important}}"
         "</style></head>"
-        "<body onload=\"setTimeout(function(){ window.print(); }, 350)\">"
-        "<div class=\"actions no-print\"><button onclick=\"window.print()\">พิมพ์ / Print</button></div>"
-        "<div class=\"sheet\">"
+        '<body onload="setTimeout(function(){ window.print(); }, 350)">'
+        '<div class="actions no-print"><button onclick="window.print()">พิมพ์ / Print</button></div>'
+        '<div class="sheet">'
         "<h1>สรุปการคำนวณและใบเสนอราคา / Calculation &amp; Quotation Summary</h1>"
-        "<p class=\"subtitle\">จัดทำเมื่อ / Generated: " + stamp + "</p>"
+        '<p class="subtitle">จัดทำเมื่อ / Generated: ' + stamp + "</p>"
         "<h2>ข้อมูลลูกค้าและสินค้า / Customer &amp; Product</h2>"
         "<table>" + _print_rows(identity) + "</table>"
         "<h2>ผลคำนวณและราคา / Calculation &amp; Pricing</h2>"
-        "<table class=\"price\">" + _print_rows(results) + "</table>"
-        "<p class=\"note\">น้ำหนักต่อแพ็ก (กก.) = กรัมต่อชิ้น × ชิ้นในแพ็ก ÷ 1,000 / Pack Weight (kg) = grams per item × pieces per pack ÷ 1,000</p>"
+        '<table class="price">' + _print_rows(results) + "</table>"
+        '<p class="note">น้ำหนักต่อแพ็ก (กก.) = กรัมต่อชิ้น × ชิ้นในแพ็ก ÷ 1,000 / Pack Weight (kg) = grams per item × pieces per pack ÷ 1,000</p>'
         "<h2>สูตรที่บันทึก / Saved Formulas</h2>"
         "<table>" + _print_rows(formulas) + "</table>"
-        "</div></body></html>"
+        "</div>"
+        '<div class="foot"><span>PANTONG THAI PACK CO., LTD. • '
+        + html_mod.escape(title)
+        + "</span>"
+        "<span>Printed: " + stamp + " • Page 1 of 1</span></div>"
+        "</body></html>"
     )
 
 
@@ -1870,7 +2587,17 @@ def api_get(quote_ref: str) -> dict[str, Any]:
 
 @app.delete("/api/quotations/{quote_ref:path}")
 def api_delete(quote_ref: str) -> dict[str, Any]:
-    if not db.delete_quotation(quote_ref):
+    try:
+        deleted = db.delete_quotation(quote_ref)
+    except db.QuotationInUse as exc:
+        # A COA that was issued, or a sample report that was signed, must keep
+        # pointing at the sheet it was measured against - say so, do not 500.
+        raise HTTPException(
+            status_code=409,
+            detail="ใบเสนอราคานี้มี COA หรือรายงานตรวจตัวอย่างอ้างอิงอยู่ ลบไม่ได้ "
+            "/ A COA or Sample Inspection Report references this quotation; delete those first",
+        ) from exc
+    if not deleted:
         raise HTTPException(status_code=404, detail="ไม่พบใบเสนอราคา / Quotation not found")
     return {"deleted": quote_ref}
 

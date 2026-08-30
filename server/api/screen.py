@@ -33,10 +33,15 @@ HEADER_SUBTITLE = APP_SUBTITLE + " • ระยะที่ 1 / Phase 1"
 # gate.py:150 prints "v" + version.split(" ")[0]; app.py:51 holds the version.
 VERSION_LABEL = "v1.7.1"
 
+# In the order the work happens (CEO, 30-08-2026): a sample is measured and
+# sent before the drawing is approved, and a COA is issued per lot AFTER
+# production - so it sits after planning, never before.
 TABS = {
     "pricing": "คำนวณราคา / Pricing",
-    "planning": "ข้อมูลวางแผนการผลิต / Production Planning",
+    "sample": "ตรวจตัวอย่าง / Sample Inspection",
     "drawing": "แบบขออนุมัติ / Drawing for Approval",
+    "planning": "ข้อมูลวางแผนการผลิต / Production Planning",
+    "coa": "ใบรับรอง COA / COA & Quality",
     "history": "ประวัติ / Quote History",
 }
 
@@ -432,7 +437,7 @@ DRAWING = {
         "holes_dia": "ขนาดรูเจาะ Ø (มม.) / Hole Diameter",
         "label_w": "ลาเบลกว้าง (มม.) / Label Width",
         "label_h": "ลาเบลสูง (มม.) / Label Height",
-        "extra_notes": "หมายเหตุเพิ่มเติม บรรทัดละหนึ่งข้อ / Extra notes, one per line",
+        "extra_notes": "ลักษณะพิเศษที่ลูกค้าอนุมัติ บรรทัดละหนึ่งข้อ / Approved special characteristics, one per line",
     },
     "not_issued": "— ยังไม่ออกเลข / not issued —",
     "notes": {

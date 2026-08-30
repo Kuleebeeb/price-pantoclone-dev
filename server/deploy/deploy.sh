@@ -29,8 +29,14 @@ else
     echo "    chua chay lan nao - bo qua backup"
 fi
 
-echo "==> 2/6  git pull"
-git pull --ff-only
+echo "==> 2/6  nguon"
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git pull --ff-only
+else
+    # Khong phai git checkout: deploy/ship.sh da bung goi tar cua mot commit len
+    # day va ghi ten commit vao DEPLOYED_REV. Khong co gi de pull.
+    echo "    khong phai git checkout - nguon do deploy/ship.sh dua len: $(cat DEPLOYED_REV 2>/dev/null || echo '?')"
+fi
 
 echo "==> 3/6  build image"
 docker compose build
@@ -38,7 +44,9 @@ docker compose build
 echo "==> 4/6  test doi chieu voi ban desktop cua CEO"
 # Lech mot so la dung deploy. Cong thuc trong core/ la ban sao tung byte cua
 # chuong trinh CEO dang dung; no thoi khop la san pham noi doi.
-docker compose run --rm --no-deps --entrypoint python api tests/test_parity.py
+# </dev/null: docker compose run nuot stdin, va khi script nay duoc bom qua ssh
+# thi phan con lai cua script chinh la stdin do.
+docker compose run --rm --no-deps --entrypoint python api tests/test_parity.py </dev/null
 
 echo "==> 5/6  khoi dong lai"
 docker compose up -d

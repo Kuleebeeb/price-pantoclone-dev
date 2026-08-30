@@ -4,6 +4,9 @@ import {
   drawingRegister,
   getDrawing,
   saveDrawing,
+  planningSources,
+  quotationForm,
+  type SourceRow,
   type Customer,
   type Labels,
   type Meta,
@@ -34,6 +37,7 @@ type Props = {
 
 type Sheet = {
   doc_no: string
+  quote_ref: string
   date: string
   revision: string
   customer: string
@@ -70,6 +74,7 @@ type Sheet = {
 function blankSheet(): Sheet {
   return {
     doc_no: '',
+    quote_ref: '',
     date: new Date().toISOString().slice(0, 10),
     revision: 'A',
     customer: '',
@@ -143,6 +148,8 @@ export function Drawing({ labels, form, meta, customers }: Props) {
   const [query, setQuery] = useState('')
   const [rows, setRows] = useState<Row[]>([])
   const [selected, setSelected] = useState('')
+  const [quoteQuery, setQuoteQuery] = useState('')
+  const [quoteRows, setQuoteRows] = useState<SourceRow[]>([])
 
   const set = (patch: Partial<Sheet>) => setSheet((s) => ({ ...s, ...patch }))
   const drawn = DRAWN[sheet.product_key] ?? ['width', 'length']
@@ -166,6 +173,42 @@ export function Drawing({ labels, form, meta, customers }: Props) {
     // Loaded once when the tab opens, as the desktop does (app.py:2135).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      planningSources(quoteQuery).then((answer) => setQuoteRows(answer.rows)).catch(() => setQuoteRows([]))
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [quoteQuery])
+
+  async function loadQuotation(quoteRef: string) {
+    try {
+      const answer = await quotationForm(quoteRef)
+      const source = answer.form as unknown as Partial<Form>
+      setSheet((current) => ({
+        ...current,
+        quote_ref: quoteRef,
+        customer: source.customer ?? '', customer_code: source.customer_code ?? '',
+        title: source.item_description ?? '', part_no: source.product_reference?.trim() || '-',
+        product_key: source.product_key ?? 'flat', date: source.quote_date ?? current.date,
+        width: source.width ?? '', width_unit: source.width_unit ?? 'ซม.',
+        length: source.length ?? '', length_unit: source.length_unit ?? 'ซม.',
+        height: source.height ?? '', height_unit: source.length_unit ?? 'ซม.',
+        gusset: source.gusset ?? '', gusset_unit: source.width_unit ?? 'ซม.',
+        thickness: perSideThickness(source.thickness ?? '', source.thickness_mode ?? 'pair'),
+        thickness_unit: source.thickness_unit ?? 'มม.',
+        length_datum: source.length_reference?.includes('ก้น') ? 'opening_to_bottom' : 'opening_to_seal',
+        tol_lo: source.tolerance_width ? String(-Math.abs(Number(source.tolerance_width))) : current.tol_lo,
+        tol_hi: source.tolerance_width ? String(Math.abs(Number(source.tolerance_width))) : current.tol_hi,
+        tol_thickness: source.tolerance_thickness ?? current.tol_thickness,
+        extra_notes: source.special_requirements ?? '',
+      }))
+      setQuoteQuery(quoteRef)
+      setStatus(`รับข้อมูลจากใบคำนวณราคา ${quoteRef} แล้ว / Quotation loaded`)
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : String(e))
+    }
+  }
 
   /* Copy from Pricing (app.py:2230-2267): the sizes are NOT retyped - a
    * drawing that says 400 mm for a bag priced at 420 is worse than no drawing.
@@ -241,6 +284,7 @@ export function Drawing({ labels, form, meta, customers }: Props) {
     try {
       const answer = await saveDrawing({
         doc_no: sheet.doc_no,
+        quote_ref: sheet.quote_ref,
         drawing_date: sheet.date,
         revision: sheet.revision,
         customer: sheet.customer,
@@ -306,6 +350,7 @@ export function Drawing({ labels, form, meta, customers }: Props) {
       setSheet((s) => ({
         ...s,
         doc_no: f.doc_no ?? '',
+        quote_ref: f.quote_ref ?? '',
         date: f.date ?? s.date,
         revision: f.revision ?? 'A',
         customer: f.customer ?? '',
@@ -363,6 +408,21 @@ export function Drawing({ labels, form, meta, customers }: Props) {
         </button>
       </div>
       <p className="desk-status dw-status">{status}</p>
+
+      <div className="desk-card">
+        <h2 className="desk-band" style={{ background: colors.source }}>
+          อ้างอิงใบคำนวณราคา / Quotation Reference
+        </h2>
+        <label className="desk-box">
+          <span className="desk-label">เลขใบคำนวณราคา ลูกค้า รหัส หรือรายการ / Quote No., Customer, Code or Item</span>
+          <input value={quoteQuery} onChange={(e) => setQuoteQuery(e.target.value)} placeholder="QT-YYYYMMDD-NNNN" />
+        </label>
+        <div className="dw-quote-list">
+          {quoteRows.slice(0, 8).map((row) => (
+            <button type="button" key={row.quote_ref} onClick={() => loadQuotation(row.quote_ref)}>{row.line}</button>
+          ))}
+        </div>
+      </div>
 
       {/* Card 1 - the document (app.py:1940-1979). */}
       <div className="desk-card">
@@ -578,7 +638,7 @@ export function Drawing({ labels, form, meta, customers }: Props) {
           </Box>
         </div>
         <label className="desk-box dw-notes">
-          <span className="desk-label">{words.fields.extra_notes}</span>
+          <span className="desk-label">ลักษณะพิเศษที่ลูกค้าอนุมัติ (พิมพ์ได้หลายข้อ บรรทัดละหนึ่งข้อ) / Approved Special Characteristics</span>
           <textarea
             rows={3}
             value={sheet.extra_notes}
