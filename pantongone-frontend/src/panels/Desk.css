@@ -332,16 +332,23 @@
 
 /* ------------------------------------------------------------- action bar */
 
-/* Pinned under the form the way the desktop packs it to the bottom of the
- * Pricing tab (app.py:471, 1417-1641). */
+/* NOT pinned. The desktop packs this frame LAST inside the Pricing tab -
+ * app.py:1419 is `actions.pack(fill="x", side="bottom")`, and Tk's
+ * side="bottom" is a stacking ORDER, not a pin over scrolling content
+ * (app.py:470 says the pricing tab SCROLLS).
+ *
+ * Read as `position: sticky; bottom: 0`, it became a 575px card glued to the
+ * screen: 92% of a 1366x768 laptop viewport, leaving a 50px strip for the
+ * spec form above it - 0 of 15 spec fields reachable - and 173% of a phone
+ * screen, with the card's own top 590px cut off. Measured 03-09-2026.
+ *
+ * This class carries 143 lines of JSX (Desk.tsx:908-1051), not a button row.
+ * If a pinned bar is ever wanted, pin the four-step strip alone, never this. */
 .desk-actionbar {
   background: #fff;
   border: 1px solid #9e9a91;
   padding: 7px 10px;
   margin: 5px 8px;
-  position: sticky;
-  bottom: 0;
-  z-index: 5;
 }
 
 /* Pricing.Section.TLabel (app.py:1421-1427): the step bar. */
