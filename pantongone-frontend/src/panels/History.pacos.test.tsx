@@ -89,12 +89,13 @@ describe('sending ticked prices to PacOs', () => {
     expect(screen.getByRole('button', { name: labels.history.buttons.edit })).toBeDisabled()
   })
 
-  it('without a bridge on the server the button stays, disabled, and says why', async () => {
+  /* Until 14-09-2026 the button stayed, disabled, with the reason in a tooltip.
+     PacOs D45 removed the bridge for good, so a button that can never be
+     pressed is not drawn at all (the ticks stay: they are the tree's). */
+  it('without a bridge on the server there is no PacOs button at all', async () => {
     draw(false)
     await screen.findByText('ZZB/69-01')
-    await userEvent.click(screen.getByLabelText(`${labels.bridge.check_col} ZZB/69-01`))
-    const button = screen.getByRole('button', { name: /PacOs/ })
-    expect(button).toBeDisabled()
-    expect(button).toHaveAttribute('title', labels.bridge.off)
+    expect(screen.queryByRole('button', { name: /PacOs/ })).toBeNull()
+    expect(screen.getByRole('button', { name: labels.history.buttons.edit })).toBeDisabled()
   })
 })

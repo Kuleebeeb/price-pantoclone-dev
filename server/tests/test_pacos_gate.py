@@ -82,7 +82,7 @@ CEO_ID = "5b1d5c1e-8d1a-4f0e-9c3b-2a7d6e5f4a3b"
 OK_BODY = {
     "user": {
         "id": CEO_ID, "email": "CEO@Pantong.test", "full_name": "Angela", "lang": "th",
-        "roles": ["ceo"], "permissions": ["specs.calc", "quotations.view_cost_breakdown"],
+        "roles": ["ceo"], "permissions": ["specs.calc", "pricing.sign_in"],
     },
     "access_token": "acc-1", "expires_in": 900, "refresh_token": "ref-1",
 }
@@ -108,7 +108,7 @@ except RuntimeError as exc:
     check("mode: a misspelt value refuses to boot, not falls back to local", "pacoss" in str(exc), exc)
 os.environ["AUTH_MODE"] = "pacos"
 check("describe names the address and the permission",
-      "http://pacos.test" in pacos_gate.describe() and "quotations.view_cost_breakdown" in pacos_gate.describe(),
+      "http://pacos.test" in pacos_gate.describe() and "pricing.sign_in" in pacos_gate.describe(),
       pacos_gate.describe())
 
 # --------------------------------------------------------------------- a yes
@@ -124,7 +124,7 @@ check("carries the caller's address for PacOs's own per-address counter",
       login.get_header("X-forwarded-for") == "203.0.113.9")
 check("who: id, lower-cased email, name, roles, permissions as PacOs said",
       who == {"id": CEO_ID, "email": "ceo@pantong.test", "full_name": "Angela",
-              "roles": ["ceo"], "permissions": ["specs.calc", "quotations.view_cost_breakdown"]}, who)
+              "roles": ["ceo"], "permissions": ["specs.calc", "pricing.sign_in"]}, who)
 check("closes the PacOs session it just opened", len(op.calls) == 2 and op.calls[1].full_url == "http://pacos.test/api/v1/auth/logout",
       [c.full_url for c in op.calls])
 logout = op.calls[1]
@@ -132,8 +132,11 @@ check("logout carries the access token, the refresh token, and X-Client: native"
       logout.get_header("Authorization") == "Bearer acc-1"
       and logout.get_header("X-refresh-token") == "ref-1"
       and logout.get_header("X-client") == "native")
-check("allowed: the cost-breakdown permission opens the door", pacos_gate.allowed(who))
-check("allowed: without it the door stays shut", not pacos_gate.allowed({"permissions": ["specs.calc", "quotations.create"]}))
+check("allowed: pricing.sign_in opens the door", pacos_gate.allowed(who))
+check("allowed: the old cost-breakdown key still opens it while PacOs D45 lands",
+      pacos_gate.allowed({"permissions": ["quotations.view_cost_breakdown"]}))
+check("allowed: without either the door stays shut - quotations.create is not enough",
+      not pacos_gate.allowed({"permissions": ["specs.calc", "quotations.create"]}))
 check("allowed: no permissions at all", not pacos_gate.allowed({}))
 
 op = opener_with([OK_BODY, {"ok": True}])

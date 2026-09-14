@@ -394,15 +394,20 @@ export function History({ labels, products, customers, onEdit, onStatus, bridgeO
         <button type="button" onClick={showRelated}>
           {words.buttons.related}
         </button>
-        <button
-          type="button"
-          className="hx-pacos"
-          disabled={!bridgeOn || sending || picked.size === 0}
-          title={bridgeOn ? '' : bridge.off}
-          onClick={sendToPacos}
-        >
-          {picked.size > 0 ? bridge.button_count.split('{n}').join(String(picked.size)) : bridge.button}
-        </button>
+        {/* Drawn only while the bridge is on. It used to sit disabled with a
+            tooltip when off; since 14-09-2026 (PacOs D45) the bridge is gone
+            for good, and a dead button with an explanation is still a dead
+            button on every history screen. */}
+        {bridgeOn && (
+          <button
+            type="button"
+            className="hx-pacos"
+            disabled={sending || picked.size === 0}
+            onClick={sendToPacos}
+          >
+            {picked.size > 0 ? bridge.button_count.split('{n}').join(String(picked.size)) : bridge.button}
+          </button>
+        )}
         <span className="hx-count">{countText}</span>
       </div>
 

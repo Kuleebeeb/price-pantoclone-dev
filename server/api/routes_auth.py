@@ -219,14 +219,14 @@ def _login_via_pacos(body: LoginRequest, source_ip: str) -> dict[str, Any]:
 
     if not pacos_gate.allowed(who):
         # Right password, wrong account: the person exists in PacOs and may not
-        # see the cost structure there either. Naming the permission sends them
-        # to the right colleague, as PacOs's own refusal does.
+        # use the pricing program. Naming the permission sends them to the
+        # right colleague, as PacOs's own refusal does.
         raise HTTPException(
             status_code=403,
             detail=(
-                "บัญชี PacOs นี้ไม่มีสิทธิ์ดูโครงสร้างต้นทุน จึงใช้โปรแกรมคำนวณราคาไม่ได้ / "
-                "this PacOs account may not see the cost structure, so it cannot use the "
-                "pricing program (needs " + pacos_gate.REQUIRED_PERMISSION + ")"
+                "บัญชี PacOs นี้ไม่มีสิทธิ์ใช้โปรแกรมคำนวณราคา / "
+                "this PacOs account may not use the pricing program "
+                "(needs " + pacos_gate.REQUIRED_PERMISSION + ")"
             ),
         )
 

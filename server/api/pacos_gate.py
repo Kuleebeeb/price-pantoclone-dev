@@ -21,8 +21,12 @@ WHAT IS DELIBERATELY NOT DONE.
     nothing, and put a phantom "device" on the person's PacOs sessions screen
     at every sign-in.
   - The gate is a PacOs PERMISSION, not a role name. Roles get renamed;
-    quotations.view_cost_breakdown says exactly what this program shows - the
-    cost structure behind a price, which SRS 3 keeps away from the sales role.
+    pricing.sign_in says exactly what it grants - the right to use this
+    program, which prints the cost structure behind a price, a thing SRS 3
+    keeps away from the sales role. Until 14-09-2026 the key was
+    quotations.view_cost_breakdown; PacOs D45 drops every cost permission
+    along with its formula, so the gate got a key of its own. The old key
+    still opens the door while the two deploys cross, and goes after.
 """
 
 from __future__ import annotations
@@ -34,10 +38,17 @@ import urllib.error
 import urllib.request
 from typing import Any, Callable
 
-# The one PacOs permission that opens this program. The pricing screen prints
-# the cost behind every price, and PacOs grants that sight to ceo, sale_manager
-# and admin - not to sale (0001_init.sql: "no cost breakdown. SRS 3 and K2").
-REQUIRED_PERMISSION = "quotations.view_cost_breakdown"
+# The PacOs permission that opens this program: granted to ceo, sale_manager
+# and admin, not to sale - the same three the cost-breakdown key went to
+# (0001_init.sql: "no cost breakdown. SRS 3 and K2"), because the pricing
+# screen prints the cost behind every price.
+REQUIRED_PERMISSION = "pricing.sign_in"
+
+# Still accepted while PacOs D45 lands: PacOs seeds pricing.sign_in in the same
+# migration that drops quotations.view_cost_breakdown, and this service is
+# deployed FIRST - so for a while the only key an account carries is the old
+# one. Drop the second entry once PacOs has deployed migration 0131.
+ACCEPTED_PERMISSIONS = (REQUIRED_PERMISSION, "quotations.view_cost_breakdown")
 
 # Long enough for a cold PacOs container, short enough that a person at the
 # gate is told "PacOs is not answering" instead of watching a spinner.
@@ -168,4 +179,5 @@ def _close_session(access_token: str, refresh_token: str, opener: Opener) -> Non
 
 
 def allowed(user: dict[str, Any]) -> bool:
-    return REQUIRED_PERMISSION in (user.get("permissions") or [])
+    held = user.get("permissions") or []
+    return any(key in held for key in ACCEPTED_PERMISSIONS)

@@ -62,11 +62,18 @@ SALE = "zz-pacos-sale@test.local"
 OFF = "zz-pacos-off@test.local"
 BUSY = "zz-pacos-busy@test.local"
 LOCAL = "zz-pacos-local@test.local"
+OLDKEY = "zz-pacos-oldkey@test.local"
 
 ACCOUNTS = {
     (CEO, "ceo-pass-123456"): {
         "id": CEO_ID, "email": "ZZ-PacOs-CEO@test.local", "full_name": "Angela (PacOs)", "lang": "th",
-        "roles": ["ceo"], "permissions": ["specs.calc", "quotations.create", "quotations.view_cost_breakdown"],
+        "roles": ["ceo"], "permissions": ["specs.calc", "quotations.create", "pricing.sign_in"],
+    },
+    # A PacOs that has not deployed D45 yet: the account carries only the old
+    # cost-breakdown key. It must still get in, or the two deploys cannot cross.
+    (OLDKEY, "old-pass-123456"): {
+        "id": "9d4f8b3a-1c2e-4d5f-8a6b-7c8d9e0f1a2b", "email": OLDKEY, "full_name": "Somsak (old key)", "lang": "th",
+        "roles": ["sale_manager"], "permissions": ["quotations.create", "quotations.view_cost_breakdown"],
     },
     (SALE, "sale-pass-123456"): {
         "id": "7c2e6d2f-9e2b-4a1f-8d4c-3b8e7f6a5b4c", "email": SALE, "full_name": "Somchai (Sale)", "lang": "th",
@@ -224,7 +231,7 @@ try:
     check("the name is the one PacOs holds", r.get("user", {}).get("full_name") == "Angela (PacOs)", r.get("user"))
     check("the email is lower-cased", r.get("user", {}).get("email") == CEO, r.get("user"))
     check("permissions travel with the session",
-          "quotations.view_cost_breakdown" in r.get("user", {}).get("permissions", []), r.get("user"))
+          "pricing.sign_in" in r.get("user", {}).get("permissions", []), r.get("user"))
     check("PacOs received X-Client: native",
           PacosStandIn.seen and PacosStandIn.seen[0]["path"] == "/api/v1/auth/login"
           and PacosStandIn.seen[0]["headers"].get("x-client") == "native", PacosStandIn.seen[:1])
@@ -239,10 +246,10 @@ try:
           row is not None and row["pacos_user_id"] == CEO_ID and row["full_name"] == "Angela (PacOs)"
           and row["is_active"] is True and row["password_hash"] is None, row)
     check("the row keeps the permissions PacOs granted",
-          row is not None and "quotations.view_cost_breakdown" in row["permissions"], row and row["permissions"])
+          row is not None and "pricing.sign_in" in row["permissions"], row and row["permissions"])
 
     s, r, _ = call("GET", "/api/me", bearer=token)
-    check("/api/me answers with the same permissions", s == 200 and "quotations.view_cost_breakdown" in r.get("permissions", []), r)
+    check("/api/me answers with the same permissions", s == 200 and "pricing.sign_in" in r.get("permissions", []), r)
 
     # switched off locally -> the token dies at once; PacOs's next yes revives the row
     with store.pool().connection() as conn:
@@ -255,10 +262,15 @@ try:
 
     # ------------------------------------------------------------ the gate
     s, r, _ = call("POST", "/api/auth/login", {"email": SALE, "password": "sale-pass-123456"})
-    check("right password without the cost-breakdown permission: 403 naming it",
-          s == 403 and "quotations.view_cost_breakdown" in r.get("error", ""), (s, r))
+    check("right password without the sign-in permission: 403 naming it",
+          s == 403 and "pricing.sign_in" in r.get("error", ""), (s, r))
     check("no row is mirrored for an account that may not enter", user_row(SALE) is None)
     check("that refusal is not counted as a wrong password", failed_attempts(SALE) == 0)
+
+    # ------------------------------------ the old key, while D45 crosses over
+    s, r, _ = call("POST", "/api/auth/login", {"email": OLDKEY, "password": "old-pass-123456"})
+    check("an account carrying only the old cost-breakdown key still gets in while PacOs D45 lands",
+          s == 200 and bool(r.get("token")), (s, str(r)[:200]))
 
     # ------------------------------------------------------------- the noes
     before = failed_attempts(CEO)
