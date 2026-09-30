@@ -82,20 +82,21 @@ describe('sending ticked prices to PacOs', () => {
     alert.mockRestore()
   })
 
-  it('a tick does not select the row for Edit/Delete', async () => {
+  it('a tick also selects the row for Edit (CEO 2026-09)', async () => {
     draw()
     await screen.findByText('ZZB/69-01')
     await userEvent.click(screen.getByLabelText(`${labels.bridge.check_col} ZZB/69-01`))
-    expect(screen.getByRole('button', { name: labels.history.buttons.edit })).toBeDisabled()
+    // CEO 2026-09: togglePick also selects the row, so a ticked quote can go
+    // straight to Sample / Drawing / Edit; the button label lives in History.tsx
+    expect(screen.getByRole('button', { name: 'แก้ไขข้อมูล / Edit' })).toBeEnabled()
   })
 
-  /* Until 14-09-2026 the button stayed, disabled, with the reason in a tooltip.
-     PacOs D45 removed the bridge for good, so a button that can never be
-     pressed is not drawn at all (the ticks stay: they are the tree's). */
-  it('without a bridge on the server there is no PacOs button at all', async () => {
+  it('without a bridge on the server the button stays, disabled, and says why', async () => {
     draw(false)
     await screen.findByText('ZZB/69-01')
-    expect(screen.queryByRole('button', { name: /PacOs/ })).toBeNull()
-    expect(screen.getByRole('button', { name: labels.history.buttons.edit })).toBeDisabled()
+    await userEvent.click(screen.getByLabelText(`${labels.bridge.check_col} ZZB/69-01`))
+    const button = screen.getByRole('button', { name: /PacOs/ })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute('title', labels.bridge.off)
   })
 })

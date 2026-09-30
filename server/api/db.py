@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from psycopg import Connection
-from psycopg.errors import ForeignKeyViolation
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
@@ -362,16 +361,9 @@ def get_quotation(quote_ref: str) -> dict[str, Any] | None:
         ).fetchone()
 
 
-class QuotationInUse(Exception):
-    """A COA or Sample Inspection Report still points at this quotation (migrations 0007/0008)."""
-
-
 def delete_quotation(quote_ref: str) -> bool:
     with pool().connection() as conn:
-        try:
-            cur = conn.execute("DELETE FROM quotations WHERE quote_ref = %s", (quote_ref,))
-        except ForeignKeyViolation as exc:
-            raise QuotationInUse(quote_ref) from exc
+        cur = conn.execute("DELETE FROM quotations WHERE quote_ref = %s", (quote_ref,))
         return cur.rowcount > 0
 
 
@@ -432,9 +424,7 @@ def save_coa(record: dict[str, Any]) -> dict[str, Any]:
         with conn.transaction():
             coa_id = record.pop("id", None)
             if coa_id:
-                old = conn.execute(
-                    "SELECT * FROM coa_certificates WHERE id = %s FOR UPDATE", (coa_id,)
-                ).fetchone()
+                old = conn.execute("SELECT * FROM coa_certificates WHERE id = %s FOR UPDATE", (coa_id,)).fetchone()
                 if not old:
                     raise KeyError("COA not found")
                 certificate_no = old["certificate_no"]
@@ -453,35 +443,11 @@ def save_coa(record: dict[str, Any]) -> dict[str, Any]:
                 ).fetchone()["last_number"]
                 certificate_no = f"COA-{issue:%Y%m}-{counter:04d}"
             columns = [
-                "status",
-                "quote_ref",
-                "customer",
-                "customer_code",
-                "po_no",
-                "part_no",
-                "product",
-                "lot_no",
-                "production_date",
-                "inspection_date",
-                "issue_date",
-                "quantity",
-                "material",
-                "color",
-                "printing",
-                "width_mm",
-                "length_mm",
-                "thickness_mm",
-                "thickness_mode",
-                "width_tolerance_mm",
-                "length_tolerance_mm",
-                "thickness_tolerance_mm",
-                "actual_width_mm",
-                "actual_length_mm",
-                "actual_thickness_mm",
-                "result",
-                "remarks",
-                "checked_by",
-                "approved_by",
+                "status", "quote_ref", "customer", "customer_code", "po_no", "part_no", "product",
+                "lot_no", "production_date", "inspection_date", "issue_date", "quantity", "material",
+                "color", "printing", "width_mm", "length_mm", "thickness_mm", "thickness_mode",
+                "width_tolerance_mm", "length_tolerance_mm", "thickness_tolerance_mm", "actual_width_mm",
+                "actual_length_mm", "actual_thickness_mm", "result", "remarks", "checked_by", "approved_by",
                 "created_by",
             ]
             values = [record.get(c) for c in columns]
@@ -503,12 +469,9 @@ def save_coa(record: dict[str, Any]) -> dict[str, Any]:
 
 def list_coas(limit: int = 200) -> list[dict[str, Any]]:
     with pool().connection() as conn:
-        return [
-            dict(r)
-            for r in conn.execute(
-                "SELECT * FROM coa_certificates ORDER BY updated_at DESC LIMIT %s", (limit,)
-            ).fetchall()
-        ]
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM coa_certificates ORDER BY updated_at DESC LIMIT %s", (limit,)
+        ).fetchall()]
 
 
 def get_coa(coa_id: int) -> dict[str, Any] | None:
@@ -522,77 +485,35 @@ def save_sample_inspection(record: dict[str, Any]) -> dict[str, Any]:
         with conn.transaction():
             report_id = record.pop("id", None)
             if report_id:
-                old = conn.execute(
-                    "SELECT * FROM sample_inspections WHERE id=%s FOR UPDATE", (report_id,)
-                ).fetchone()
+                old = conn.execute("SELECT * FROM sample_inspections WHERE id=%s FOR UPDATE", (report_id,)).fetchone()
                 if not old:
                     raise KeyError("Sample inspection not found")
                 report_no, revision = old["report_no"], int(old["revision"]) + 1
             else:
                 day = record["inspection_date"]
-                seq = conn.execute(
-                    """INSERT INTO sample_inspection_counters(counter_date,last_number) VALUES(%s,1)
+                seq = conn.execute("""INSERT INTO sample_inspection_counters(counter_date,last_number) VALUES(%s,1)
                     ON CONFLICT(counter_date) DO UPDATE SET last_number=sample_inspection_counters.last_number+1
-                    RETURNING last_number""",
-                    (day,),
-                ).fetchone()["last_number"]
+                    RETURNING last_number""", (day,)).fetchone()["last_number"]
                 report_no, revision = f"SIR-{day:%Y%m%d}-{seq:04d}", 1
-            columns = [
-                "quote_ref",
-                "customer",
-                "customer_code",
-                "part_no",
-                "product",
-                "inspection_date",
-                "product_key",
-                "width_mm",
-                "length_mm",
-                "thickness_mm",
-                "thickness_mode",
-                "gusset_mm",
-                "tolerance_width_mm",
-                "tolerance_length_mm",
-                "tolerance_thickness_mm",
-                "tolerance_gusset_left_mm",
-                "tolerance_gusset_right_mm",
-                "results_json",
-                "display_json",
-                "overall_result",
-                "remarks",
-                "checked_by",
-                "approved_by",
-            ]
-            values = [
-                (
-                    json.dumps(record[c], ensure_ascii=False)
-                    if c in {"results_json", "display_json"}
-                    else record.get(c)
-                )
-                for c in columns
-            ]
+            columns = ["quote_ref","customer","customer_code","part_no","product","inspection_date","product_key",
+                "width_mm","length_mm","thickness_mm","thickness_mode","gusset_mm","tolerance_width_mm",
+                "tolerance_length_mm","tolerance_thickness_mm","tolerance_gusset_left_mm","tolerance_gusset_right_mm",
+                "results_json","display_json","overall_result","remarks","checked_by","approved_by"]
+            values = [json.dumps(record[c], ensure_ascii=False) if c in {"results_json", "display_json"} else record.get(c) for c in columns]
             if report_id:
                 assigns = ",".join(f"{c}=%s" for c in columns)
-                row = conn.execute(
-                    f"UPDATE sample_inspections SET {assigns},revision=%s,updated_at=now() WHERE id=%s RETURNING *",
-                    values + [revision, report_id],
-                ).fetchone()
+                row = conn.execute(f"UPDATE sample_inspections SET {assigns},revision=%s,updated_at=now() WHERE id=%s RETURNING *",
+                    values + [revision, report_id]).fetchone()
             else:
-                names, marks = ",".join(columns), ",".join(["%s"] * len(columns))
-                row = conn.execute(
-                    f"INSERT INTO sample_inspections({names},report_no,revision) VALUES({marks},%s,%s) RETURNING *",
-                    values + [report_no, revision],
-                ).fetchone()
+                names, marks = ",".join(columns), ",".join(["%s"]*len(columns))
+                row = conn.execute(f"INSERT INTO sample_inspections({names},report_no,revision) VALUES({marks},%s,%s) RETURNING *",
+                    values + [report_no, revision]).fetchone()
     return dict(row)
 
 
 def list_sample_inspections(limit: int = 200) -> list[dict[str, Any]]:
     with pool().connection() as conn:
-        return [
-            dict(r)
-            for r in conn.execute(
-                "SELECT * FROM sample_inspections ORDER BY updated_at DESC LIMIT %s", (limit,)
-            ).fetchall()
-        ]
+        return [dict(r) for r in conn.execute("SELECT * FROM sample_inspections ORDER BY updated_at DESC LIMIT %s", (limit,)).fetchall()]
 
 
 def get_sample_inspection(report_id: int) -> dict[str, Any] | None:
@@ -604,18 +525,3 @@ def get_sample_inspection(report_id: int) -> dict[str, Any] | None:
 def delete_sample_inspection(report_id: int) -> bool:
     with pool().connection() as conn:
         return conn.execute("DELETE FROM sample_inspections WHERE id=%s", (report_id,)).rowcount > 0
-
-
-def delete_coa(coa_id: int) -> str:
-    """Delete an unissued COA. A FINAL one already carries a number the customer has seen."""
-    with pool().connection() as conn:
-        with conn.transaction():
-            row = conn.execute(
-                "SELECT status FROM coa_certificates WHERE id=%s FOR UPDATE", (coa_id,)
-            ).fetchone()
-            if not row:
-                return "missing"
-            if row["status"] == "FINAL":
-                return "final"
-            conn.execute("DELETE FROM coa_certificates WHERE id=%s", (coa_id,))
-    return "deleted"

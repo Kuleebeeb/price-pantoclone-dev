@@ -11,7 +11,7 @@ import {
   type Labels,
   type Meta,
 } from '@/lib/api'
-import type { DrawingRequest, Form, ProductKey } from '@/lib/calc'
+import { orderedProducts, type DrawingRequest, type Form, type ProductKey } from '@/lib/calc'
 import { Suggest } from '@/ui/Suggest'
 import './Drawing.css'
 
@@ -33,6 +33,7 @@ type Props = {
   form: Form
   meta: Meta | null
   customers: Customer[]
+  initialQuoteRef?: string
 }
 
 type Sheet = {
@@ -70,12 +71,20 @@ type Sheet = {
   extra_notes: string
 }
 
+function todayLocal(): string {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 /* The desktop's own starting values (app.py:1883-1904). */
 function blankSheet(): Sheet {
   return {
     doc_no: '',
     quote_ref: '',
-    date: new Date().toISOString().slice(0, 10),
+    date: todayLocal(),
     revision: 'A',
     customer: '',
     customer_code: '',
@@ -111,6 +120,7 @@ function blankSheet(): Sheet {
 /* Which dimension boxes each product draws (app.py:2144-2160). */
 const DRAWN: Record<string, string[]> = {
   flat: ['width', 'length'],
+  sleeve: ['width', 'length'],
   gusset: ['width', 'length', 'gusset'],
   opaque: ['width', 'length'],
   roll: ['width', 'length'],
@@ -141,13 +151,14 @@ function openSheet(html: string) {
 
 type Row = Record<string, string>
 
-export function Drawing({ labels, form, meta, customers }: Props) {
+export function Drawing({ labels, form, meta, customers, initialQuoteRef = '' }: Props) {
   const words = labels.drawing
   const [sheet, setSheet] = useState<Sheet>(blankSheet)
   const [status, setStatus] = useState(words.status_idle)
   const [query, setQuery] = useState('')
   const [rows, setRows] = useState<Row[]>([])
   const [selected, setSelected] = useState('')
+  const [drawingView, setDrawingView] = useState<'2d' | '3d' | 'both'>('2d')
   const [quoteQuery, setQuoteQuery] = useState('')
   const [quoteRows, setQuoteRows] = useState<SourceRow[]>([])
 
@@ -210,6 +221,12 @@ export function Drawing({ labels, form, meta, customers }: Props) {
     }
   }
 
+  useEffect(() => {
+    if (initialQuoteRef) void loadQuotation(initialQuoteRef)
+    // A new reference from Quote History intentionally reloads the drawing source.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuoteRef])
+
   /* Copy from Pricing (app.py:2230-2267): the sizes are NOT retyped - a
    * drawing that says 400 mm for a bag priced at 420 is worse than no drawing.
    * A pair thickness is halved into per-side, as the desktop halves it. */
@@ -260,6 +277,7 @@ export function Drawing({ labels, form, meta, customers }: Props) {
       tol_thickness: n(sheet.tol_thickness),
       length_datum: asksDatum ? sheet.length_datum : '',
       display_unit: sheet.display_unit,
+      drawing_view: asksDatum ? drawingView : '2d',
       holes_count: Math.round(n(sheet.holes_count)),
       holes_dia: sheet.holes_dia,
       label_w: n(sheet.label_w),
@@ -327,7 +345,7 @@ export function Drawing({ labels, form, meta, customers }: Props) {
     set({
       doc_no: '',
       revision: 'A',
-      date: new Date().toISOString().slice(0, 10),
+      date: todayLocal(),
       width: '',
       length: '',
       height: '',
@@ -488,7 +506,7 @@ export function Drawing({ labels, form, meta, customers }: Props) {
               value={sheet.product_key}
               onChange={(e) => set({ product_key: e.target.value as ProductKey })}
             >
-              {Object.entries(meta?.products ?? {}).map(([key, label]) => (
+              {orderedProducts(meta?.products).map(([key, label]) => (
                 <option key={key} value={key}>
                   {label}
                 </option>
@@ -519,6 +537,14 @@ export function Drawing({ labels, form, meta, customers }: Props) {
               <option value="inch">inch</option>
             </select>
           </Box>
+          {asksDatum && <Box label="รูปสินค้า / มุมมองสำหรับดูและพิมพ์">
+            <select value={drawingView} onChange={(e) => setDrawingView(e.target.value as '2d' | '3d' | 'both')}>
+              <option value="2d">2 มิติ — แบบอ้างอิงขนาด</option>
+              <option value="3d">3 มิติ — ภาพประกอบรูปทรง</option>
+              <option value="both">แสดงทั้งสอง</option>
+            </select>
+            <small>ภาพ 3 มิติไม่ใช่มาตราส่วนจริง ใช้ตารางขนาดเป็นหลัก</small>
+          </Box>}
           <Box label={words.fields.thickness_side}>
             <div className="desk-pair">
               <input

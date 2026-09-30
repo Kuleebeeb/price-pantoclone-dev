@@ -66,17 +66,19 @@ describe('the price boxes and the sale basis', () => {
     expect(screen.getByLabelText(/ใช้ค่าหัก \/ Apply/)).toBeChecked()
   })
 
-  it('coverProduct_hidesThicknessAndItsMode', async () => {
-    // The cover formula weighs roof and mesh by GSM; a thickness box left on
-    // screen would be a question the calculation never reads (screen.py
-    // FIELDS_BY_PRODUCT).
+  it('coverProduct_asksThicknessPerSide_modeLocked', async () => {
+    // CEO 2026-09: Product Cover is a whole PE bag open at the top (SHIMOHIRA
+    // formula) - thickness is asked, always per side, and the mode is locked.
     const { container } = draw()
     await screen.findByText(/Final selling price per kg/)
-    expect(screen.getByText('ความหนา * / Thickness')).toBeInTheDocument()
     const product = container.querySelector('.desk-row6 select') as HTMLSelectElement
     await userEvent.selectOptions(product, 'cover')
-    expect(screen.queryByText('ความหนา * / Thickness')).not.toBeInTheDocument()
-    expect(screen.queryByText(/Per Side\/Pair/)).not.toBeInTheDocument()
+    expect(screen.getByText('ความหนา * / Thickness')).toBeInTheDocument()
     expect(screen.getByText('ความสูง * / Height')).toBeInTheDocument()
+    const mode = [...container.querySelectorAll('select')].find((s) =>
+      [...s.options].some((o) => o.value === 'pair'),
+    ) as HTMLSelectElement
+    expect(mode.value).toBe('side')
+    expect(mode).toBeDisabled()
   })
 })

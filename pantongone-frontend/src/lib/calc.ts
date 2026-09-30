@@ -15,7 +15,19 @@
 export type Measure = { value: number; unit: string }
 export type Thickness = { value: number; unit: string; mode: 'side' | 'pair' }
 
-export type ProductKey = 'flat' | 'opaque' | 'gusset' | 'roll' | 'cover'
+export type ProductKey = 'flat' | 'sleeve' | 'opaque' | 'gusset' | 'roll' | 'cover'
+
+export const PRODUCT_ORDER: ProductKey[] = ['flat', 'gusset', 'sleeve', 'opaque', 'roll', 'cover']
+
+export function orderedProducts(products: Record<string, string> = {}): [ProductKey, string][] {
+  const complete: Record<string, string> = {
+    ...products,
+    sleeve: products.sleeve ?? 'ปลอกพลาสติกเปิดสองด้าน (Open-Ended Plastic Sleeve)',
+  }
+  return PRODUCT_ORDER
+    .map((key): [ProductKey, string] => [key, complete[key] ?? ''])
+    .filter((row) => Boolean(row[1]))
+}
 
 export type CalcRequest = {
   product_key: ProductKey
@@ -138,6 +150,7 @@ export type Form = {
 }
 
 export type DrawingRequest = {
+  drawing_view?: '2d' | '3d' | 'both'
   product_key: ProductKey
   doc_no: string
   customer: string

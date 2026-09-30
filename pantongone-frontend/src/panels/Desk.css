@@ -175,6 +175,97 @@
   color: #fff;
 }
 
+.desk-workspace {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  margin: 10px 8px 18px;
+}
+
+.desk-mainnav {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  position: sticky;
+  top: 8px;
+  align-self: start;
+  z-index: 10;
+  border: 1px solid #9e9a91;
+  background: #f4f6f7;
+}
+
+.datum-choice button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #173d63;
+  font: 700 14px Arial, Tahoma, sans-serif;
+  cursor: pointer;
+}
+
+.datum-choice button:hover {
+  background: #fff;
+}
+
+.datum-choice button.is-selected {
+  border-color: #3b73ad;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px #3b73ad;
+}
+
+.datum-choice button input {
+  pointer-events: none;
+}
+
+.desk-mainnav button {
+  width: 100%;
+  min-height: 52px;
+  padding: 10px 12px;
+  text-align: left;
+  border-width: 0 0 1px;
+}
+
+.desk-mainnav button:last-child {
+  border-bottom: 0;
+}
+
+.desk-workspace-content {
+  min-width: 0;
+}
+
+.desk-workspace-content > .desk-tabbody {
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .desk-workspace {
+    grid-template-columns: 185px minmax(0, 1fr);
+  }
+
+  .desk-mainnav button {
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 680px) {
+  .desk-workspace {
+    display: block;
+  }
+
+  .desk-mainnav {
+    position: static;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin-bottom: 8px;
+  }
+}
+
 .desk-tabs.is-inner {
   margin: 0 0 -1px;
 }
@@ -184,6 +275,70 @@
   border: 1px solid #9e9a91;
   margin: 0 8px 18px;
   padding: 8px 0 0;
+}
+
+.desk-pricingmodes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(210px, 1fr));
+  gap: 8px;
+  margin: 0 8px 7px;
+}
+
+.desk-pricingmodes button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-height: 58px;
+  padding: 8px 12px;
+  border: 2px solid #9eabb7;
+  border-radius: 5px;
+  background: #f5f7f9;
+  color: #263746;
+  text-align: left;
+  cursor: pointer;
+}
+
+.desk-pricingmodes button:hover {
+  border-color: #527997;
+  background: #edf4f8;
+}
+
+.desk-pricingmodes button strong {
+  font-size: 14px;
+}
+
+.desk-pricingmodes button span {
+  font-size: 12px;
+  color: #52606d;
+}
+
+.desk-pricingmodes button.is-active {
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+.desk-pricingmodes button.is-trial {
+  border-color: #b7791f;
+  background: #fff6da;
+  color: #704308;
+}
+
+.desk-pricingmodes button.is-official {
+  border-color: #277047;
+  background: #e9f5ed;
+  color: #194d31;
+}
+
+.desk-pricingmodes button.is-sample {
+  border-color: #6d8da5;
+  background: #eaf2f7;
+  color: #183f5b;
+}
+
+@media (max-width: 820px) {
+  .desk-pricingmodes {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Card.TFrame (app.py:281): white, one solid hairline, padding 12; placed
@@ -217,7 +372,7 @@
 }
 
 .desk-band.is-brown {
-  background: var(--navy);
+  background: #694a85;
 }
 
 /* The compact card's six equal columns (app.py:1007-1008). */
@@ -255,6 +410,50 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 6px 16px;
+}
+
+.desk-quotedpack-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.desk-quotedpack-grid .desk-box {
+  min-width: 0;
+}
+
+.desk-quotedpack-grid .desk-label {
+  min-height: 36px;
+  display: flex;
+  align-items: flex-end;
+  line-height: 1.25;
+}
+
+.desk-quotedpack-grid input,
+.desk-quotedpack-grid .desk-greenout {
+  min-height: 42px;
+}
+
+.desk-quotedpack-grid .desk-greenout {
+  display: flex;
+  align-items: center;
+  padding: 7px 9px;
+  border: 1px solid #9e9a91;
+  background: #f8fbf9;
+  line-height: 1.25;
+  white-space: normal;
+}
+
+@media (max-width: 1250px) {
+  .desk-quotedpack-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .desk-quotedpack-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .desk-box {
@@ -332,23 +531,15 @@
 
 /* ------------------------------------------------------------- action bar */
 
-/* NOT pinned. The desktop packs this frame LAST inside the Pricing tab -
- * app.py:1419 is `actions.pack(fill="x", side="bottom")`, and Tk's
- * side="bottom" is a stacking ORDER, not a pin over scrolling content
- * (app.py:470 says the pricing tab SCROLLS).
- *
- * Read as `position: sticky; bottom: 0`, it became a 575px card glued to the
- * screen: 92% of a 1366x768 laptop viewport, leaving a 50px strip for the
- * spec form above it - 0 of 15 spec fields reachable - and 173% of a phone
- * screen, with the card's own top 590px cut off. Measured 03-09-2026.
- *
- * This class carries 143 lines of JSX (Desk.tsx:908-1051), not a button row.
- * If a pinned bar is ever wanted, pin the four-step strip alone, never this. */
+/* Normal document flow keeps this section from covering the form above it. */
 .desk-actionbar {
   background: #fff;
   border: 1px solid #9e9a91;
   padding: 7px 10px;
   margin: 5px 8px;
+  position: relative;
+  clear: both;
+  z-index: 0;
 }
 
 /* Pricing.Section.TLabel (app.py:1421-1427): the step bar. */
@@ -564,6 +755,37 @@
   color: #18384e;
 }
 
+/* Keep Customer & Document visible in the first desktop viewport.  These are
+ * six short master-data fields, so a wide screen can show them in one clear
+ * row instead of making the operator scroll before starting a quotation. */
+@media (min-width: 1100px) {
+  .desk-formsection.is-customer {
+    margin-bottom: 7px;
+  }
+
+  .desk-formsection.is-customer > h2 {
+    margin-bottom: 5px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  .desk-formsection.is-customer .desk-row6 {
+    grid-template-columns:
+      minmax(105px, 0.75fr)
+      minmax(190px, 1.55fr)
+      minmax(130px, 0.9fr)
+      minmax(190px, 1.45fr)
+      minmax(200px, 1.65fr)
+      minmax(150px, 1.15fr);
+    gap: 6px 10px;
+    padding-bottom: 7px;
+  }
+
+  .desk-formsection.is-customer .desk-row6 .is-span2 {
+    grid-column: span 1;
+  }
+}
+
 .desk-formsection.is-product > h2 {
   background: #e0efe5;
   color: #1d452c;
@@ -589,8 +811,8 @@
 }
 
 .desk-keyresult {
-  min-height: 76px;
-  padding: 10px 12px;
+  min-height: 88px;
+  padding: 9px 12px;
   border: 2px solid #1f6aa5;
   background: #f5f9fc;
   display: flex;
@@ -603,6 +825,7 @@
   color: #344054;
   font-size: 13px;
   font-weight: 700;
+  line-height: 1.3;
 }
 
 .desk-keyresult strong {
@@ -855,7 +1078,7 @@
 .desk-qctable thead th:nth-child(2), .desk-qctable tbody td:nth-child(2) { background: #eff8f2; }
 .desk-qctable thead th:nth-child(3), .desk-qctable tbody td:nth-child(3) { background: #fff9e8; }
 .desk-qctable thead th:nth-child(4), .desk-qctable tbody td:nth-child(4) { background: #f0f7fc; }
-.desk-qctable thead th:nth-child(5), .desk-qctable tbody td:nth-child(5) { background: #f3f4f6; }
+.desk-qctable thead th:nth-child(5), .desk-qctable tbody td:nth-child(5) { background: #f5f1f7; }
 
 .desk-comparetable tbody tr:nth-child(even) td,
 .desk-comparetable tbody tr:nth-child(even) th,
@@ -873,3 +1096,7 @@
   padding: 24px;
   color: var(--muted);
 }
+.desk-pricing-bottom{position:sticky;bottom:0;z-index:5;display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:14px;background:#f3f7fc;border:2px solid #7e98b4;color:#111;box-shadow:0 -3px 10px #20375818}
+.desk-pricing-bottom button{min-height:46px;padding:10px 18px;font-weight:700}
+.desk-pricing-bottom span{flex:1;min-width:220px;line-height:1.5}
+@media print{.desk-pricing-bottom{display:none!important}}

@@ -14,9 +14,8 @@ import {
   type Meta,
   type Session,
   type SourceRow,
-  type TabKey,
 } from '@/lib/api'
-import type { CalcRequest, CalcResponse, Form, ProductKey } from '@/lib/calc'
+import { orderedProducts, type CalcRequest, type CalcResponse, type Form, type ProductKey } from '@/lib/calc'
 import { History } from '@/panels/History'
 import { Drawing } from '@/panels/Drawing'
 import { Coa } from '@/panels/Coa'
@@ -45,7 +44,8 @@ import './Desk.css'
  * itself.
  */
 
-type Tab = TabKey
+type Tab = 'pricing' | 'sample' | 'planning' | 'drawing' | 'coa' | 'history'
+type PricingMode = 'trial' | 'official'
 
 /* Written down ONCE, and they are the desktop's own starting values
  * (app.py DEFAULTS, 67-73; roof/mesh at 1777-1796). */
@@ -59,11 +59,19 @@ const DEFAULTS = {
   mesh_gsm: '80',
 }
 
+function todayLocal(): string {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 export function blank(meta: Meta | null): Form {
   return {
     customer: '',
     customer_code: '',
-    quote_date: new Date().toISOString().slice(0, 10),
+    quote_date: todayLocal(),
     item_description: '',
     product_reference: '',
     product_key: 'flat',
@@ -133,6 +141,7 @@ function n(raw: string): number {
 }
 
 export function toRequest(form: Form, meta: Meta | null): CalcRequest {
+  const peCover = form.product_key === 'cover'
   return {
     product_key: form.product_key,
     width: { value: n(form.width), unit: form.width_unit },
@@ -144,13 +153,13 @@ export function toRequest(form: Form, meta: Meta | null): CalcRequest {
     thickness: {
       value: n(form.thickness),
       unit: form.thickness_unit,
-      mode: form.thickness_mode,
+      mode: peCover ? 'side' : form.thickness_mode,
     },
     length_reference: form.length_reference,
     density_g_cm3: n(form.density),
     material_price_per_kg: n(form.material_price),
-    deduction_percent: n(form.deduction),
-    apply_deduction: form.apply_deduction,
+    deduction_percent: peCover ? 10 : n(form.deduction),
+    apply_deduction: peCover ? form.sale_basis === 'piece' : form.apply_deduction,
     sale_basis: form.sale_basis,
     selling_price_per_piece_override: n(form.price_per_piece),
     selling_price_per_kg_override: n(form.price_per_kg),
@@ -163,7 +172,7 @@ export function toRequest(form: Form, meta: Meta | null): CalcRequest {
     mesh_gsm: n(form.mesh_gsm),
     /* Empty means "the default for THIS product", which lives on the server
      * beside the formulas themselves (LAW P1). */
-    weight_formula: form.weight_formula,
+    weight_formula: peCover ? '(roof_area_cm2 + mesh_area_cm2) / (2.54 * 2.54) * thickness_side_mm / 1800 * 1000' : form.weight_formula,
     price_formula: form.price_formula || meta?.default_price_formula || '',
     tolerance_width: { value: n(form.tolerance_width), unit: 'มม.' },
     tolerance_length: { value: n(form.tolerance_length), unit: 'มม.' },
@@ -276,11 +285,16 @@ type Props = {
 export function Desk({ meta, session, onSignOut }: Props) {
   const [form, setForm] = useState<Form>(() => blank(meta))
   const [tab, setTab] = useState<Tab>('pricing')
+  const [pricingMode, setPricingMode] = useState<PricingMode>('trial')
+  const [sampleQuoteRef, setSampleQuoteRef] = useState('')
+  const [drawingQuoteRef, setDrawingQuoteRef] = useState('')
   const [answer, setAnswer] = useState<CalcResponse | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [saved, setSaved] = useState('')
   const [refText, setRefText] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const savePending = useRef(false)
+  const [lastSavedRef, setLastSavedRef] = useState('')
   const [customers, setCustomers] = useState<Customer[]>([])
   const [helpOpen, setHelpOpen] = useState(false)
   const [planning, setPlanning] = useState<PlanningState>(emptyPlanning)
@@ -316,7 +330,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
 
   const labels = meta?.labels
   const drawn: string[] = useMemo(
-    () => labels?.fields_by_product?.[form.product_key] ?? ['width', 'length', 'thickness'],
+    () => form.product_key === 'cover' ? ['width', 'length', 'height', 'thickness'] : labels?.fields_by_product?.[form.product_key] ?? ['width', 'length', 'thickness'],
     [labels, form.product_key],
   )
   const isBag = labels?.asks_length_reference?.includes(form.product_key) ?? false
@@ -369,12 +383,17 @@ export function Desk({ meta, session, onSignOut }: Props) {
   }
 
   async function keep() {
-    if (saving || !labels) return
+    if (savePending.current || !labels) return
+    if (pricingMode === 'trial') {
+      window.alert('ขณะนี้เป็นโหมดคำนวณราคาทดลอง ซึ่งจะไม่เก็บข้อมูล\nกรุณาเลือก “คำนวณราคาจริง” ก่อนเก็บเอกสาร')
+      return
+    }
     if (!validateHeader()) return
-    const calculated = await runCalculate()
-    if (!calculated) return
+    savePending.current = true
     setSaving(true)
     try {
+      const calculated = await runCalculate()
+      if (!calculated) return
       /* The QUESTION goes up, never the answer: the server works the figures
        * out again and stores what IT got (LAW K1). */
       const row = await saveQuotation({
@@ -386,20 +405,26 @@ export function Desk({ meta, session, onSignOut }: Props) {
         product_reference: form.product_reference,
         revised_from_ref: editingRef,
       })
-      setSaved(row.quote_ref)
-      setRefText(labels.notes.quote_ref_prefix + row.quote_ref)
-      setStatus(labels.notes.saved_status_prefix + row.quote_ref)
+      setLastSavedRef(row.quote_ref)
       window.alert(
         labels.notes.saved_body
           + '\n' + labels.notes.quote_ref_prefix + row.quote_ref
           + (editingRef ? '\n' + labels.history.revised_from.split('{ref}').join(editingRef) : ''),
       )
       setEditingRef('')
+      setForm(blank(meta))
+      setAnswer(null)
+      setSaved('')
+      setRefText(null)
+      setStatus(labels.notes.saved_status_prefix + row.quote_ref + ' — พร้อมกรอกรายการใหม่')
+      try { localStorage.removeItem(DRAFT_KEY) } catch { /* Saved server record is unaffected. */ }
+      window.scrollTo({ top: 0, behavior: 'instant' })
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       setStatus(labels.notes.check_input + message)
       window.alert(message)
     } finally {
+      savePending.current = false
       setSaving(false)
     }
   }
@@ -444,6 +469,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
     setSaved('')
     setRefText(labels.notes.draft_ref)
     setStatus(labels.notes.draft_restored)
+    setPricingMode('trial')
     setTab('pricing')
   }
 
@@ -454,23 +480,39 @@ export function Desk({ meta, session, onSignOut }: Props) {
     setRefText(null)
     setEditingRef('')
     setStatus(labels ? labels.history.new_status : null)
+    setPricingMode('trial')
     setTab('pricing')
+  }
+
+  function createSampleFromQuote(quoteRef: string) {
+    setSampleQuoteRef(quoteRef)
+    setStatus(`ทำใบตัวอย่างจาก ${quoteRef}: โปรแกรมกำลังดึงข้อมูลลูกค้าและสินค้า`)
+    setTab('sample')
+  }
+
+  function createDrawingFromQuote(quoteRef: string) {
+    setDrawingQuoteRef(quoteRef)
+    setStatus(`ทำ Drawing for Approval จาก ${quoteRef}: โปรแกรมกำลังดึงข้อมูลลูกค้าและสเปก`)
+    setTab('drawing')
   }
 
   /* The history tab's Edit button: the saved record poured back into the
    * form, box-ready, then straight to the pricing tab and a recalculation -
    * the desktop's own sequence (app.py:4185-4296). */
-  async function editFromHistory(quoteRef: string) {
+  async function editFromHistory(quoteRef: string, copyNew = false) {
     if (!labels) return
+    if ((form.customer.trim() || form.width.trim() || form.length.trim()) && !window.confirm('มีข้อมูลในหน้ากรอก ต้องการแทนที่ด้วยรายการที่เลือกเพื่อแก้ไขหรือไม่?')) return
     try {
       const answer = await quotationForm(quoteRef)
-      setForm({ ...blank(meta), ...(answer.form as Partial<Form>) })
-      setEditingRef(answer.quote_ref)
+      setForm({ ...blank(meta), ...(answer.form as Partial<Form>), ...(copyNew ? { quote_date: todayLocal() } : {}) })
+      setEditingRef(copyNew ? '' : answer.quote_ref)
       setSaved('')
-      setRefText(answer.ref_text)
-      setStatus(answer.status)
+      setRefText(copyNew ? '' : answer.ref_text)
+      setStatus(copyNew ? `คัดลอกจาก ${answer.quote_ref} — รายการใหม่ ยังไม่บันทึก กรุณาตรวจราคาแล้วคำนวณใหม่` : answer.status)
       setAnswer(null)
+      setPricingMode('official')
       setTab('pricing')
+      window.scrollTo({ top: 0, behavior: 'instant' })
     } catch (e) {
       window.alert(e instanceof Error ? e.message : String(e))
     }
@@ -576,6 +618,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
       const sheet = await workOrderHtml({
         department: dept,
         source: planning.summary,
+        product_type: orderedProducts(meta?.products).find(([key]) => key === planning.productKey)?.[1] ?? planning.productKey,
         width: planning.width,
         length: planning.length,
         thickness: planning.thickness,
@@ -641,7 +684,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
   const acceptedSamePiecesMaxKg = comparisonPieces > 0 && acceptedWeightMax > 0 ? comparisonPieces * acceptedWeightMax / 1000 : 0
 
   return (
-    <div className="desk">
+    <div className="desk" inert={saving} aria-busy={saving}>
       <header className="desk-head">
         <div className="desk-head-left">
           <div className="desk-head-line">
@@ -669,12 +712,12 @@ export function Desk({ meta, session, onSignOut }: Props) {
           <button type="button" onClick={restoreDraft}>
             {labels.buttons.restore}
           </button>
-          <button type="button" className="desk-accent" onClick={() => runCalculate()}>
+          {tab !== 'pricing' && <button type="button" className="desk-accent" onClick={() => runCalculate()}>
             {labels.buttons.calculate}
-          </button>
-          <button type="button" className="desk-accent" onClick={keep} disabled={saving}>
+          </button>}
+          {tab !== 'pricing' && <button type="button" className="desk-accent" onClick={keep} disabled={saving}>
             {labels.buttons.save}
-          </button>
+          </button>}
           <button type="button" onClick={printSummary}>
             {labels.buttons.print}
           </button>
@@ -685,7 +728,8 @@ export function Desk({ meta, session, onSignOut }: Props) {
         <p className="desk-status">{status ?? labels.notes.ready}</p>
       </div>
 
-      <div className="desk-tabs" role="tablist">
+      <div className="desk-workspace">
+      <div className="desk-tabs desk-mainnav" role="tablist" aria-label="เมนูส่วนงานหลัก">
         {(['pricing', 'sample', 'drawing', 'planning', 'coa', 'history'] as Tab[]).map((id) => (
           <button
             key={id}
@@ -695,13 +739,52 @@ export function Desk({ meta, session, onSignOut }: Props) {
             className={tab === id ? 'is-on' : ''}
             onClick={() => setTab(id)}
           >
-            {labels.tabs[id]}
+            {id === 'coa' ? 'COA / Quality' : id === 'sample' ? 'Sample Inspection' : labels.tabs[id]}
           </button>
         ))}
       </div>
 
+      <main className="desk-workspace-content">
+
       {tab === 'pricing' && (
         <section className="desk-tabbody">
+          <div className="desk-pricingmodes" role="group" aria-label="รูปแบบการคำนวณราคา">
+            <button
+              type="button"
+              className={pricingMode === 'trial' ? 'is-active is-trial' : ''}
+              aria-pressed={pricingMode === 'trial'}
+              onClick={() => {
+                setPricingMode('trial')
+                setStatus('คำนวณราคาทดลอง: คำนวณได้ทันทีและจะไม่บันทึกลงฐานข้อมูล')
+              }}
+            >
+              <strong>1. คำนวณราคาทดลอง</strong>
+              <span>ไม่เก็บข้อมูล / Trial calculation</span>
+            </button>
+            <button
+              type="button"
+              className={pricingMode === 'official' ? 'is-active is-official' : ''}
+              aria-pressed={pricingMode === 'official'}
+              onClick={() => {
+                setPricingMode('official')
+                setStatus('คำนวณราคาจริง: กรุณาเลือกลูกค้า ตรวจข้อมูล แล้วกดเก็บข้อมูล')
+              }}
+            >
+              <strong>2. คำนวณราคาจริง</strong>
+              <span>เก็บข้อมูลและออกเลขเอกสาร / Official</span>
+            </button>
+            <button
+              type="button"
+              className="is-sample"
+              onClick={() => {
+                setTab('sample')
+                setStatus('ทำตัวอย่างให้ลูกค้า: เลือกใบคำนวณราคาจริงที่บันทึกแล้วเพื่อดึงข้อมูล')
+              }}
+            >
+              <strong>3. ทำตัวอย่างให้ลูกค้า</strong>
+              <span>ใบตรวจตัวอย่าง / Sample inspection</span>
+            </button>
+          </div>
           {/* The compact card - the ONLY card the desktop's Pricing tab draws.
               Its section banner is deliberately removed (app.py:1006). */}
           <div className="desk-card is-compact">
@@ -728,11 +811,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
                 />
               </div>
               <Box label={labels.fields.date}>
-                <input
-                  type="date"
-                  value={form.quote_date}
-                  onChange={(e) => set({ quote_date: e.target.value })}
-                />
+                <InternationalDateInput value={form.quote_date} onChange={(quote_date) => set({ quote_date })} />
               </Box>
               <div className="desk-box is-span2">
                 <span className="desk-label">{labels.fields.product_type}</span>
@@ -744,14 +823,15 @@ export function Desk({ meta, session, onSignOut }: Props) {
                       product_key,
                       // Plastic Sheet is one layer; bags contain two sides.
                       // Other product types keep the operator's current choice.
-                      ...(product_key === 'opaque' ? { thickness_mode: 'side' as const } : {}),
-                      ...(['flat', 'gusset'].includes(product_key) ? { thickness_mode: 'pair' as const } : {}),
+                      ...(['opaque', 'cover'].includes(product_key) ? { thickness_mode: 'side' as const } : {}),
+                      ...(product_key === 'cover' ? { deduction: '10', apply_deduction: true } : {}),
+                      ...(['flat', 'sleeve', 'gusset'].includes(product_key) ? { thickness_mode: 'pair' as const } : {}),
                     })
                   }}
                 >
-                  {Object.entries(meta?.products ?? {}).map(([key, label]) => (
+                  {orderedProducts(meta?.products).map(([key, label]) => (
                     <option key={key} value={key}>
-                      {label}
+                      {key === 'cover' ? 'Product Cover — PE ทั้งใบ เปิดด้านบน' : label}
                     </option>
                   ))}
                 </select>
@@ -872,7 +952,8 @@ export function Desk({ meta, session, onSignOut }: Props) {
               {drawn.includes('thickness') && (
                 <Box label={labels.fields.thickness_mode}>
                   <select
-                    value={form.thickness_mode}
+                    value={form.product_key === 'cover' ? 'side' : form.thickness_mode}
+                    disabled={form.product_key === 'cover'}
                     onChange={(e) => set({ thickness_mode: e.target.value as 'side' | 'pair' })}
                   >
                     {labels.choices.thickness_mode.map((c) => (
@@ -892,6 +973,11 @@ export function Desk({ meta, session, onSignOut }: Props) {
                 </Box>
               )}
             </div>
+            {form.product_key === 'cover' && <p className="desk-hint" role="note">
+              Product Cover PE — สูตร SHIMOHIRA: แผ่นปิด (กว้าง + 1) × (ยาว + 1) ซม.; แผ่นรอบตัว [2 × (กว้าง + ยาว) + 4] × (สูง + 1) ซม.
+              ความหนาต่อด้าน ไม่หารสอง; ใช้ตัวหาร 1,800 ตามไฟล์ ไม่ใช้ GSM หรือ Density คิดน้ำหนักซ้ำ ขนาดมาตรฐานไม่เปลี่ยน
+              ขายเป็นใบหักจำนวนสำหรับคิดราคา 10% เท่านั้น น้ำหนักบรรจุไม่หัก หากเปิดรายการเก่าสูตรตาข่าย การคำนวณใหม่นี้จะใช้สูตร PE
+            </p>}
             <h3 className="desk-source-subhead"><span className="desk-newbadge">เพิ่มใหม่ / NEW</span> ค่าคลาดเคลื่อนและลักษณะพิเศษต้นทาง / Master Tolerances & Special Requirements</h3>
             <div className="desk-row6">
               <Box label="ความกว้าง ± mm / Width Tolerance"><input value={form.tolerance_width} onChange={(e) => set({ tolerance_width: e.target.value })} /></Box>
@@ -903,8 +989,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
             </div>
           </div>
 
-          {/* THE ACTION BAR, pinned under the form exactly as the desktop pins
-              it to the bottom of the tab (app.py:1417-1641). */}
+          {/* Pricing and packaging follows the specification form in normal flow. */}
           <div className="desk-actionbar">
             <h2 className="desk-actiontitle">3. ข้อมูลราคาและแพ็คเกจ / Pricing & Packaging</h2>
             <div className="desk-steps" aria-label={labels.steps}>
@@ -954,7 +1039,8 @@ export function Desk({ meta, session, onSignOut }: Props) {
                   <label className="desk-tick">
                     <input
                       type="checkbox"
-                      checked={form.apply_deduction}
+                      checked={form.product_key === 'cover' ? form.sale_basis === 'piece' : form.apply_deduction}
+                      disabled={form.product_key === 'cover'}
                       onChange={(e) => set({ apply_deduction: e.target.checked })}
                     />
                     {labels.fields.apply_deduction}
@@ -962,7 +1048,8 @@ export function Desk({ meta, session, onSignOut }: Props) {
                   <span className="desk-label">{labels.fields.percent}</span>
                   <input
                     className="desk-narrow"
-                    value={form.deduction}
+                    value={form.product_key === 'cover' ? '10' : form.deduction}
+                    disabled={form.product_key === 'cover'}
                     onChange={(e) => set({ deduction: e.target.value })}
                   />
                 </div>
@@ -1001,7 +1088,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
 
             <div className="desk-subcard">
               <h3 className="desk-subhead">ข้อมูลแพ็คเกจที่เสนอขาย / Quoted Packaging</h3>
-              <div className="desk-grid">
+              <div className="desk-grid desk-quotedpack-grid">
                 <Box label="จำนวนใบต่อห่อหรือพับ / Pcs per Pack or Fold">
                   <input value={form.pack_quantity} onChange={(e) => set({ pack_quantity: e.target.value })} />
                 </Box>
@@ -1028,7 +1115,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
               </div>
               <div className="desk-keyresult">
                 <span>
-                  หลังหักเผื่อผลิต {form.apply_deduction ? form.deduction || '0' : '0'}% /
+                  หลังหักเผื่อผลิต {form.product_key === 'cover' ? (sellByKg ? '0' : '10') : form.apply_deduction ? form.deduction || '0' : '0'}% /
                   After production deduction
                 </span>
                 <strong>{display.adjusted_items ? `${display.adjusted_items}/กก.` : '—'}</strong>
@@ -1042,12 +1129,18 @@ export function Desk({ meta, session, onSignOut }: Props) {
             <p className="desk-mutednote">
               {labels.notes.weight_formula_prefix}
               {answer?.formulas.weight ??
-                meta?.default_weight_formulas[form.product_key] ??
+                (form.product_key === 'cover' ? toRequest(form, meta).weight_formula : meta?.default_weight_formulas[form.product_key]) ??
                 ''}
               {'\n'}
               {labels.notes.price_formula_prefix}
               {answer?.formulas.price ?? meta?.default_price_formula ?? ''}
             </p>
+          </div>
+          <div className="desk-pricing-bottom" aria-label="คำสั่งคำนวณราคา">
+            <button type="button" className="desk-accent" onClick={() => runCalculate()} disabled={saving}>{labels.buttons.calculate}</button>
+            <button type="button" className="desk-accent" onClick={keep} disabled={saving || pricingMode === 'trial'}>{saving ? 'กำลังเก็บข้อมูล…' : labels.buttons.save}</button>
+            <button type="button" disabled={saving || !lastSavedRef} onClick={() => editFromHistory(lastSavedRef)}>แก้ไขรายการที่บันทึกล่าสุด</button>
+            <span role="status">{editingRef ? `กำลังแก้ไขอ้างอิง ${editingRef} — บันทึกเป็นรุ่นใหม่ เก็บต้นฉบับเดิม` : status ?? labels.notes.ready}</span>
           </div>
         </section>
       )}
@@ -1070,6 +1163,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
               <h3 className="desk-subhead">ตารางเทียบสเปคลูกค้ากับสเปคสั่งผลิต / Customer Spec vs Production Order</h3>
               <p className="desk-cardnote">{planning.salesProduct || '—'} • {planning.salesPartNo || '—'}</p>
               <div className="desk-tablewrap"><table className="desk-table desk-comparetable"><thead><tr><th>ลำดับตรวจ / Check</th><th>ข้อมูลสั่งผลิตจริง / Production Order</th><th>สเปคที่ลูกค้ากำหนด / Customer-Specified</th><th>เกณฑ์ยอมรับได้ / Acceptance</th></tr></thead><tbody>
+                <tr><th>ประเภทสินค้า / Product Type</th><td colSpan={3}><strong>{(orderedProducts(meta?.products).find(([key]) => key === planning.productKey)?.[1] ?? planning.productKey) || '—'}</strong></td></tr>
                 <tr><th>1. ความหนา / Thickness</th><td><strong>{planning.thickness || '—'}</strong></td><td>{planning.salesThickness ? `${planning.salesThickness} • ${planning.salesThicknessMode}` : '—'}</td><td>{planning.toleranceThickness ? `±${planning.toleranceThickness} mm` : '—'}</td></tr>
                 <tr><th>2. ความกว้าง / Width</th><td>{planning.width ? `${planning.width} cm` : '—'}</td><td>{planning.salesWidth || '—'}</td><td>{planning.toleranceWidth ? `±${planning.toleranceWidth} mm` : '—'}</td></tr>
                 <tr><th>3. ความยาว / Length</th><td>{planning.length ? `${planning.length} cm` : '—'}</td><td>{planning.salesLength || '—'}</td><td>{planning.toleranceLength ? `±${planning.toleranceLength} mm` : '—'}</td></tr>
@@ -1398,12 +1492,12 @@ export function Desk({ meta, session, onSignOut }: Props) {
       )}
 
       {tab === 'drawing' && (
-        <Drawing labels={labels} form={form} meta={meta} customers={customers} />
+        <Drawing labels={labels} form={form} meta={meta} customers={customers} initialQuoteRef={drawingQuoteRef} />
       )}
 
-      {tab === 'sample' && <SampleInspection onBack={() => setTab('pricing')} />}
+      {tab === 'sample' && <SampleInspection initialQuoteRef={sampleQuoteRef} onBack={() => setTab('pricing')} />}
 
-      {tab === 'coa' && <Coa onBack={() => setTab('pricing')} />}
+      {tab === 'coa' && <Coa />}
 
       {tab === 'history' && (
         <History
@@ -1411,10 +1505,15 @@ export function Desk({ meta, session, onSignOut }: Props) {
           products={meta?.products ?? {}}
           customers={customers}
           onEdit={editFromHistory}
+          onCopy={(ref) => editFromHistory(ref, true)}
+          onCreateSample={createSampleFromQuote}
+          onCreateDrawing={createDrawingFromQuote}
           onStatus={setStatus}
           bridgeOn={meta?.pacos_bridge ?? false}
         />
       )}
+      </main>
+      </div>
 
       {helpOpen && meta && <Formulas meta={meta} onClose={() => setHelpOpen(false)} />}
     </div>
@@ -1545,6 +1644,38 @@ function SourcePicker({
 
 /* A caption, a box, and a note that is ALWAYS VISIBLE - never a tooltip
  * (LAW P9). If a note matters enough to write, it matters enough to show. */
+function InternationalDateInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const toDisplay = (iso: string) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+    return match ? `${match[3]}/${match[2]}/${match[1]}` : iso
+  }
+  const [text, setText] = useState(() => toDisplay(value))
+  useEffect(() => setText(toDisplay(value)), [value])
+
+  const update = (next: string) => {
+    setText(next)
+    const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(next)
+    if (!match) return
+    const [, day, month, year] = match
+    const date = new Date(`${year}-${month}-${day}T00:00:00`)
+    if (date.getFullYear() === Number(year) && date.getMonth() + 1 === Number(month) && date.getDate() === Number(day)) {
+      onChange(`${year}-${month}-${day}`)
+    }
+  }
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      placeholder="DD/MM/YYYY"
+      aria-label="Date DD/MM/YYYY"
+      value={text}
+      onChange={(event) => update(event.target.value)}
+      onBlur={() => setText(toDisplay(value))}
+    />
+  )
+}
+
 function Box({
   label,
   note,
