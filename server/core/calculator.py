@@ -10,8 +10,9 @@ from formula_engine import FormulaError, evaluate_formula
 
 PRODUCTS = {
     "flat": "ถุงพลาสติกเปิดปากตรง (Plastic Bag)",
-    "opaque": "แผ่นพลาสติก (Plastic Sheet)",
     "gusset": "ถุงพับข้าง (Gusset Bag)",
+    "sleeve": "ปลอกพลาสติกเปิดสองด้าน (Open-Ended Plastic Sleeve)",
+    "opaque": "แผ่นพลาสติก (Plastic Sheet)",
     "roll": "ม้วนพลาสติก (Plastic Roll)",
     "cover": "ถุงคลุมสินค้า (Product Cover)",
 }
@@ -37,6 +38,9 @@ THICKNESS_FACTORS_TO_MM = {
 
 DEFAULT_WEIGHT_FORMULAS = {
     "flat": "width_cm * material_length_cm * 2 * (thickness_side_mm / 10) * density_g_cm3",
+    # Tubular film has two layers like a bag, but both ends are open and there
+    # is no bottom seal allowance.
+    "sleeve": "width_cm * length_cm * 2 * (thickness_side_mm / 10) * density_g_cm3",
     "gusset": "(width_cm + gusset_cm) * material_length_cm * 2 * (thickness_side_mm / 10) * density_g_cm3",
     "roll": "width_cm * sold_length_m * 100 * 2 * (thickness_side_mm / 10) * density_g_cm3",
     # A plastic sheet is one physical layer. Its entered thickness is normally
@@ -264,6 +268,7 @@ def calculate(
 def require_positive_dimensions(product_key: str, values: dict[str, float]) -> None:
     required = {
         "flat": ("width_cm", "length_cm", "thickness_input_mm"),
+        "sleeve": ("width_cm", "length_cm", "thickness_input_mm"),
         "gusset": ("width_cm", "length_cm", "gusset_cm", "thickness_input_mm"),
         "roll": ("width_cm", "sold_length_m", "thickness_input_mm"),
         "opaque": ("width_cm", "length_cm", "thickness_input_mm"),
@@ -288,7 +293,7 @@ def size_description(product_key: str, dimensions: dict[str, dict[str, Any]]) ->
         value = f"{item['value']:g}"
         return f"{value} {item['unit']}"
 
-    if product_key in {"flat", "opaque"}:
+    if product_key in {"flat", "sleeve", "opaque"}:
         return f"กว้าง/Width {show('width')} × ยาว/Length {show('length')}"
     if product_key == "gusset":
         return f"กว้าง/Width {show('width')} × ยาว/Length {show('length')} × พับข้าง/Gusset {show('gusset')}"

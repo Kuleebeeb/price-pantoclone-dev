@@ -34,6 +34,16 @@ type Props = {
   onPick?: (quoteRef: string) => void
 }
 
+const twoDecimalColumns = new Set(['grams', 'calc_price', 'price_kg', 'price', 'price_piece', 'pack', 'pack_kg'])
+
+function displayCell(key: string, value: string | undefined) {
+  const text = value ?? ''
+  if (!twoDecimalColumns.has(key)) return text
+  const plain = text.replace(/,/g, '').trim()
+  if (!/^-?\d+(?:\.\d+)?$/.test(plain)) return text
+  return Number(plain).toFixed(2)
+}
+
 type Row = { ref: string; [key: string]: string }
 
 const folderKey = (p: TreeProduct) => p.product_name + ' ' + p.size
@@ -153,7 +163,7 @@ export function HistoryTree({ labels, filters, onOpen, onCount, picked, onPick }
                   </td>
                 )}
                 {cols.map((column) => (
-                  <td key={column.key}>{row[column.key] ?? ''}</td>
+                  <td key={column.key}>{displayCell(column.key, row[column.key])}</td>
                 ))}
               </tr>
             ))}

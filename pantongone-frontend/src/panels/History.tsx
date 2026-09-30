@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  ApiError,
   deleteQuotation,
   historySearch,
-  printSaved,
   pushToPacos,
   quotationDetails,
   relatedTable,
@@ -11,6 +11,7 @@ import {
   type SearchParams,
 } from '@/lib/api'
 import { Suggest } from '@/ui/Suggest'
+import { orderedProducts } from '@/lib/calc'
 import { HistoryTree } from './HistoryTree'
 import './History.css'
 
@@ -31,6 +32,9 @@ type Props = {
   products: Record<string, string>
   customers: Customer[]
   onEdit: (quoteRef: string) => void
+  onCopy?: (quoteRef: string) => void
+  onCreateSample?: (quoteRef: string) => void
+  onCreateDrawing?: (quoteRef: string) => void
   onStatus: (text: string) => void
   /** From /api/meta: the server has a key for PacOs. Without it the button
    *  stays, disabled, saying why - a button that vanishes is a feature
@@ -40,7 +44,7 @@ type Props = {
 
 function openSheet(html: string) {
   const w = window.open('', '_blank')
-  if (!w) return
+  if (!w) { window.alert('กรุณาอนุญาตป๊อปอัปเพื่อเปิดรายงานพิมพ์'); return }
   w.document.open()
   w.document.write(html)
   w.document.close()
@@ -48,7 +52,28 @@ function openSheet(html: string) {
 
 type Row = { ref: string; [key: string]: string }
 
-export function History({ labels, products, customers, onEdit, onStatus, bridgeOn = false }: Props) {
+function printRows(rows: Row[]) {
+  const escape = (value: string) => value.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!))
+  const groups = new Map<string, Row[]>()
+  // Group identical company names, not placeholder customer codes. Do not merge aliases.
+  rows.forEach(r => { const key = (r.customer ?? '').trim() || `ไม่ระบุบริษัท (${r.customer_code})`; groups.set(key, [...(groups.get(key) ?? []), r]) })
+  const cols: [string, string][] = [['ref','เลขอ้างอิง'],['date','วันที่'],['product','รหัสสินค้า'],['item','รายการ'],['size','ขนาด'],['thickness','ความหนา'],['grams','น้ำหนักต่อใบ (กรัม)'],['sale_unit','หน่วยขาย'],['calc_price','คำนวณ บาท/ใบ'],['price','บันทึกเดิม บาท/ใบ'],['price_kg','ฐานราคา บาท/กก.']]
+  const sheets = [...groups].map(([company, entries]) => `<section><h1>PANTONG THAI PACK CO., LTD.</h1><h2>ประวัติราคาที่บันทึก — ${escape(company)}</h2><p>${entries.length} รายการ · รวมฉบับแก้ไข · ไม่ใช่ใบเสนอราคาฉบับอนุมัติ</p><table><thead><tr>${cols.map(([,label])=>`<th>${label}</th>`).join('')}</tr></thead><tbody>${entries.map(r=>`<tr>${cols.map(([key])=>`<td>${escape(displayCell(key,r[key]))}${key==='ref' ? `<br><small>รหัสลูกค้าเดิม: ${escape(r.customer_code || 'ไม่ระบุ')}</small>` : ''}</td>`).join('')}</tr>`).join('')}</tbody></table><p>รวมตามชื่อบริษัท รหัสลูกค้าเดิมแสดงใต้เลขอ้างอิง โดยไม่เปลี่ยนข้อมูลที่บันทึก</p><p>คำนวณ บาท/ใบ = ฐานราคา/กก. ÷ จำนวนใบ/กก. จากน้ำหนักของแต่ละรายการ ใช้ค่าหักจำนวนที่บันทึกเฉพาะหน่วยขายเป็นใบ; ขายเป็น กก. ไม่หักจำนวน</p><p>บันทึกเดิม บาท/ใบ แสดงราคาเดิมเพื่อเปรียบเทียบ ไม่ได้เขียนทับข้อมูล ช่องว่างหมายถึงไม่มีข้อมูลเพียงพอ ราคาฐานต่อ กก. ไม่ใช่ต้นทุนวัตถุดิบ</p></section>`).join('')
+  const toolbar = `<nav class="report-tools"><button type="button" onclick="if(window.opener &amp;&amp; !window.opener.closed){window.opener.focus();window.close()}else{alert('กรุณาสลับกลับแท็บ PantongOne เดิม หน้านี้เป็นรายงานแยกต่างหาก')}">← กลับหน้าประวัติ</button><button type="button" onclick="window.print()">พิมพ์ / บันทึก PDF</button><span>กลับไปหน้าประวัติเดิม โดยไม่โหลดข้อมูลใหม่</span></nav>`
+  openSheet(`<!doctype html><html lang="th"><meta charset="utf-8"><title>ประวัติราคาแยกบริษัท</title><style>@page{size:A4 landscape;margin:10mm}body{font:12px Tahoma,Arial,sans-serif;color:#000}h1{font-size:17px}h2{font-size:15px}.report-tools{position:sticky;top:0;background:#eef4fc;padding:12px;display:flex;gap:12px;align-items:center;border:1px solid #789}.report-tools button{font:16px Tahoma,sans-serif;padding:10px 18px;cursor:pointer}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #444;padding:5px;overflow-wrap:anywhere}thead{display:table-header-group}tr{break-inside:avoid}section{break-after:page}section:last-child{break-after:auto}@media print{.report-tools,button{display:none}}</style>${toolbar}${sheets}</html>`)
+}
+
+const twoDecimalColumns = new Set(['grams', 'calc_price', 'price_kg', 'price', 'price_piece', 'pack', 'pack_kg'])
+
+function displayCell(key: string, value: string | undefined) {
+  const text = value ?? ''
+  if (!twoDecimalColumns.has(key)) return text
+  const plain = text.replace(/,/g, '').trim()
+  if (!/^-?\d+(?:\.\d+)?$/.test(plain)) return text
+  return Number(plain).toFixed(2)
+}
+
+export function History({ labels, products, customers, onEdit, onCopy, onCreateSample, onCreateDrawing, onStatus, bridgeOn = false }: Props) {
   const [customer, setCustomer] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -77,17 +102,17 @@ export function History({ labels, products, customers, onEdit, onStatus, bridgeO
   const filters = labels.history_filters
   const bridge = labels.bridge
 
-  function search(over: Partial<Record<'customer' | 'productKey' | 'sort', string>> = {}) {
+  function search(over: Partial<Record<'customer' | 'productKey' | 'sort' | 'item' | 'size' | 'dateFrom' | 'dateTo', string>> = {}) {
     inFlight.current?.abort()
     const ac = new AbortController()
     inFlight.current = ac
     const params: SearchParams = {
       customer: over.customer ?? customer,
-      item,
+      item: over.item ?? item,
       product_key: over.productKey ?? productKey,
-      size,
-      date_from: dateFrom,
-      date_to: dateTo,
+      size: over.size ?? size,
+      date_from: over.dateFrom ?? dateFrom,
+      date_to: over.dateTo ?? dateTo,
       sort: over.sort ?? sort,
       limit: 500,
     }
@@ -122,7 +147,7 @@ export function History({ labels, products, customers, onEdit, onStatus, bridgeO
     setItem('')
     setProductKey('')
     setSort('newest')
-    search({ customer: '', productKey: '', sort: 'newest' })
+    search({ customer: '', productKey: '', sort: 'newest', item: '', size: '', dateFrom: '', dateTo: '' })
   }
 
   const selectedRow = rows.find((r) => r.ref === selected) ?? null
@@ -149,8 +174,7 @@ export function History({ labels, products, customers, onEdit, onStatus, bridgeO
     const row = needSelection()
     if (!row) return
     try {
-      const sheet = await printSaved(row.ref)
-      openSheet(sheet.html)
+      printRows([row])
     } catch (e) {
       window.alert(e instanceof Error ? e.message : String(e))
     }
@@ -165,8 +189,9 @@ export function History({ labels, products, customers, onEdit, onStatus, bridgeO
       onStatus(words.deleted_status.split('{ref}').join(row.ref))
       window.alert(words.deleted_body.split('{ref}').join(row.ref))
       search()
-    } catch {
-      window.alert(words.delete_missing)
+    } catch (e) {
+      // 409: a COA / sample report holds it, and the server names which
+      window.alert(e instanceof ApiError && e.status !== 404 ? e.message : words.delete_missing)
     }
   }
 
@@ -190,6 +215,7 @@ export function History({ labels, products, customers, onEdit, onStatus, bridgeO
   }
 
   function togglePick(ref: string) {
+    setSelected(ref)
     setPicked((was) => {
       const next = new Set(was)
       if (next.has(ref)) next.delete(ref)
@@ -240,7 +266,6 @@ export function History({ labels, products, customers, onEdit, onStatus, bridgeO
             onChange={setCustomer}
             /* A picked suggestion searches at once (app.py:2467). The code is
              * not written anywhere - this filter matches name OR code. */
-            onPick={() => search()}
             rows={customers}
           />
         </div>
@@ -264,7 +289,7 @@ export function History({ labels, products, customers, onEdit, onStatus, bridgeO
           <span className="desk-label">{filters.product_key}</span>
           <select value={productKey} onChange={(e) => setProductKey(e.target.value)}>
             <option value="">{filters.all_types}</option>
-            {Object.entries(products).map(([key, label]) => (
+            {orderedProducts(products).map(([key, label]) => (
               <option key={key} value={key}>
                 {label}
               </option>
@@ -284,6 +309,8 @@ export function History({ labels, products, customers, onEdit, onStatus, bridgeO
       </div>
 
       <div className="hx-searchrow">
+        <button type="button" disabled={!rows.length} onClick={() => printRows(rows)}>พิมพ์ผลค้นหา A4 / Print Results</button>
+        <span>กรอกชื่อบริษัทหรือรหัสสินค้า แล้วกดค้นหาก่อนพิมพ์ — พิมพ์เฉพาะรายการที่แสดง</span>
         <button type="button" onClick={() => search()}>
           {labels.buttons.search}
         </button>
@@ -361,7 +388,7 @@ export function History({ labels, products, customers, onEdit, onStatus, bridgeO
                   />
                 </td>
                 {labels.history_columns.map((column) => (
-                  <td key={column.key}>{row[column.key]}</td>
+                  <td key={column.key}>{displayCell(column.key, row[column.key])}</td>
                 ))}
               </tr>
             ))}
@@ -382,9 +409,26 @@ export function History({ labels, products, customers, onEdit, onStatus, bridgeO
         <button type="button" onClick={() => showDetails()}>
           {words.buttons.details}
         </button>
-        <button type="button" disabled={!selectedRow} onClick={() => selectedRow && onEdit(selectedRow.ref)}>
-          {words.buttons.edit}
+        <button
+          type="button"
+          className="hx-sample"
+          disabled={!selectedRow || !onCreateSample}
+          onClick={() => selectedRow && onCreateSample?.(selectedRow.ref)}
+        >
+          ทำใบตัวอย่าง / Create Sample
         </button>
+        <button
+          type="button"
+          className="hx-drawing"
+          disabled={!selectedRow || !onCreateDrawing}
+          onClick={() => selectedRow && onCreateDrawing?.(selectedRow.ref)}
+        >
+          ทำแบบอนุมัติ / Create Drawing
+        </button>
+        <button type="button" disabled={!selectedRow} onClick={() => selectedRow && onEdit(selectedRow.ref)}>
+          แก้ไขข้อมูล / Edit
+        </button>
+        <button type="button" disabled={!selectedRow || !onCopy} onClick={() => selectedRow && onCopy?.(selectedRow.ref)}>คัดลอกเป็นรายการใหม่ / Copy as New</button>
         <button type="button" disabled={!selectedRow} onClick={printSelected}>
           {words.buttons.print_selected}
         </button>
@@ -394,20 +438,15 @@ export function History({ labels, products, customers, onEdit, onStatus, bridgeO
         <button type="button" onClick={showRelated}>
           {words.buttons.related}
         </button>
-        {/* Drawn only while the bridge is on. It used to sit disabled with a
-            tooltip when off; since 14-09-2026 (PacOs D45) the bridge is gone
-            for good, and a dead button with an explanation is still a dead
-            button on every history screen. */}
-        {bridgeOn && (
-          <button
-            type="button"
-            className="hx-pacos"
-            disabled={sending || picked.size === 0}
-            onClick={sendToPacos}
-          >
-            {picked.size > 0 ? bridge.button_count.split('{n}').join(String(picked.size)) : bridge.button}
-          </button>
-        )}
+        <button
+          type="button"
+          className="hx-pacos"
+          disabled={!bridgeOn || sending || picked.size === 0}
+          title={bridgeOn ? '' : bridge.off}
+          onClick={sendToPacos}
+        >
+          {picked.size > 0 ? bridge.button_count.split('{n}').join(String(picked.size)) : bridge.button}
+        </button>
         <span className="hx-count">{countText}</span>
       </div>
 
@@ -452,7 +491,7 @@ export function History({ labels, products, customers, onEdit, onStatus, bridgeO
                 {related.rows.map((row) => (
                   <tr key={row.ref}>
                     {labels.related_columns.map((column) => (
-                      <td key={column.key}>{row[column.key]}</td>
+                      <td key={column.key}>{displayCell(column.key, row[column.key])}</td>
                     ))}
                   </tr>
                 ))}

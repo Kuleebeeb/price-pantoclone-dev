@@ -11,8 +11,6 @@ from __future__ import annotations
 
 import html
 import math
-from datetime import datetime
-from zoneinfo import ZoneInfo
 from dataclasses import dataclass, field as dc_field
 from typing import Callable
 
@@ -41,6 +39,7 @@ COMPANY_NAME = "PANTONG THAI PACK CO., LTD."
 # ประเภทสินค้าในโปรแกรมคำนวณราคา -> รูปที่ใช้วาด
 PRODUCT_TO_SHAPE = {
     "flat": "flat_bag",
+    "sleeve": "open_ended_sleeve",
     "gusset": "gusset_bag",
     "opaque": "plastic_sheet",
     "roll": "plastic_roll",
@@ -97,6 +96,7 @@ class DrawingSpec:
     label_w: float = 0.0
     label_h: float = 0.0
     extra_notes: list[str] = dc_field(default_factory=list)
+    drawing_view: str = "2d"
 
     def length_label(self) -> str:
         return LENGTH_DATUM_TEXT.get(self.length_datum, "LENGTH")
@@ -251,6 +251,23 @@ def _gusset_bag(pen: Pen, area, spec: DrawingSpec):
         pen.line(x, bottom, x, top, 0.6, MID, [3, 3])
     pen.txt(left + g / 2 + 3, bottom + 30, "GUSSET", 6.5, True, "left", MID, 90)
     return calls
+
+
+@shape("open_ended_sleeve")
+def _open_ended_sleeve(pen: Pen, area, spec: DrawingSpec):
+    """Tubular PE sleeve: two material layers, open at both ends, no seal."""
+    x0, y0, x1, y1 = area
+    ratio = (spec.width_mm / spec.length_mm) if spec.length_mm else 0.7
+    b = Box(x0 + 45, y0 + 60, x1 - 45, y1 - 55, max(0.35, min(1.6, ratio)))
+    left, right = b.p(0, 0)[0], b.p(1, 0)[0]
+    bottom, top = b.p(0, 0)[1], b.p(0, 1)[1]
+    pen.rect(left, bottom, right - left, top - bottom, 1.7, PALE, INK)
+    pen.txt((left + right) / 2, top + 13, "OPEN TOP", 8.5, True, "center", INK)
+    pen.txt((left + right) / 2, bottom - 13, "OPEN BOTTOM", 8.5, True, "center", INK)
+    return [
+        ("width", (left, bottom - 29), (right, bottom - 29), (left, bottom), (right, bottom)),
+        ("length", (right + 32, bottom), (right + 32, top), (right, bottom), (right, top)),
+    ]
 
 
 @shape("plastic_sheet")
@@ -441,6 +458,25 @@ def _field(pen: Pen, x1, x2, y1, y2, label, value):
     pen.txt(x1 + 5, y1 + 7, value, 9.0, False, color=INK)
 
 
+def bag_perspective(pen, area, spec):
+    """Illustrative open bag only: never infer a production depth."""
+    x0, y0, x1, y1 = area
+    w, h = x1 - x0, y1 - y0
+    l, r = x0 + w * .18, x0 + w * .73
+    b, t = y0 + h * .23, y0 + h * .70
+    dx, dy = w * .09, h * .09
+    pen.poly([(l,b),(r,b),(r,t),(l,t)], fill=PALE)
+    pen.poly([(r,b),(r+dx,b+dy),(r+dx,t+dy),(r,t)], fill=PALE)
+    pen.poly([(l,t),(l+dx,t+dy),(r+dx,t+dy),(r,t)], fill="white")
+    pen.line(l,b+5,r,b+5,1,INK)
+    if spec.shape == "gusset_bag":
+        pen.line(l+w*.07,b+8,l+w*.07,t,0.7,MID,[3,3])
+        pen.line(r-w*.07,b+8,r-w*.07,t,0.7,MID,[3,3])
+    pen.txt((l+r)/2,t+dy+12,"BAG OPENING",7,True,"center",INK)
+    pen.txt((x0+x1)/2,y0+h*.12,"3D / ILLUSTRATION ONLY",7,True,"center",INK)
+    pen.txt((x0+x1)/2,y0+h*.06,"DIMENSIONS: SEE SPECIFICATION",6,False,"center",INK)
+
+
 def render_svg(spec: DrawingSpec) -> str:
     if spec.shape not in SHAPES:
         raise DrawingError(f"ยังไม่มีแบบวาดสำหรับประเภทสินค้านี้: {spec.shape}")
@@ -482,7 +518,19 @@ def render_svg(spec: DrawingSpec) -> str:
         pen.txt(sx, 458, value, 7.6, color=DARK)
 
     # พื้นที่วาด
-    callouts = SHAPES[spec.shape](pen, (x0, TITLEBLK_Y, SPLIT_X, INFO_Y), spec)
+    area = (x0, TITLEBLK_Y, SPLIT_X, INFO_Y)
+    view = spec.drawing_view if spec.shape in ("flat_bag", "gusset_bag") else "2d"
+    if view not in ("2d", "3d", "both"):
+        raise ValueError("Unsupported drawing view")
+    if view == "3d":
+        bag_perspective(pen, area, spec)
+        callouts = []
+    elif view == "both":
+        split = x0 + (SPLIT_X - x0) * .62
+        callouts = SHAPES[spec.shape](pen, (x0, TITLEBLK_Y, split, INFO_Y), spec)
+        bag_perspective(pen, (split, TITLEBLK_Y, SPLIT_X, INFO_Y), spec)
+    else:
+        callouts = SHAPES[spec.shape](pen, area, spec)
     for kind, a, b, e1, e2 in callouts:
         if e1 and e2:
             pen.ext(e1[0], e1[1], a[0], a[1])
@@ -583,8 +631,6 @@ def render_html(spec: DrawingSpec) -> str:
     """หน้าเว็บสำหรับดูตัวอย่างและสั่งพิมพ์ A4 แนวนอน"""
     svg = render_svg(spec)
     title = _esc(f"{spec.doc_no} — {spec.title}")
-    # Bangkok on purpose: the container runs UTC (tech-stack.md 3).
-    stamp = datetime.now(ZoneInfo("Asia/Bangkok")).strftime("%d/%m/%Y %H:%M:%S")
     return f"""<!DOCTYPE html>
 <html lang="th">
 <head>
@@ -594,12 +640,9 @@ def render_html(spec: DrawingSpec) -> str:
   @page {{ size: A4 landscape; margin: 6mm; }}
   body {{ margin: 0; background: #eef2f5; font-family: {FONT}; }}
   .bar {{ padding: 12px 18px; background: {INK}; color: #fff; font-weight: 700; }}
-  .bar button {{ float: right; font: inherit; padding: 6px 16px; cursor: pointer; }}
+  .bar button {{ float: right; font: inherit; padding: 6px 16px; margin-left: 8px; cursor: pointer; }}
   .sheet {{ background: #fff; margin: 16px auto; max-width: 1180px;
             box-shadow: 0 2px 12px rgba(0,0,0,.18); }}
-  .foot {{ position: fixed; bottom: 2mm; left: 0; right: 0; border-top: 1px solid #999;
-           padding: 3px 6mm 0; font-size: 9px; color: #445667;
-           display: flex; justify-content: space-between; }}
   @media print {{ .bar {{ display: none; }}
                   .sheet {{ margin: 0; max-width: none; box-shadow: none; }}
                   body {{ background: #fff; }} }}
@@ -607,9 +650,9 @@ def render_html(spec: DrawingSpec) -> str:
 </head>
 <body>
 <div class="bar">{title}
+  <button onclick="history.back(); setTimeout(function(){{ if(history.length <= 1) window.close(); }}, 100)">ย้อนกลับ / Back</button>
   <button onclick="window.print()">พิมพ์ / Print</button>
 </div>
 <div class="sheet">{svg}</div>
-<div class="foot"><span>PANTONG THAI PACK CO., LTD. • {_esc(spec.doc_no)}</span><span>Printed: {stamp} • Page 1 of 1</span></div>
 </body>
 </html>"""

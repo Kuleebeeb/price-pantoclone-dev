@@ -36,7 +36,7 @@ export default defineConfig({
      * same service serves this build, so the addresses are identical either
      * way and nothing here needs to know which it is. */
     proxy: {
-      '/api': { target: 'http://127.0.0.1:8100', changeOrigin: false },
+      '/api': { target: 'http://127.0.0.1:8101', changeOrigin: false },
     },
   },
   test: {

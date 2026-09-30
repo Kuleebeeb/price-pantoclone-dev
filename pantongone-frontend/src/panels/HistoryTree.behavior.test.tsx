@@ -82,9 +82,9 @@ describe('the customer folder tree', () => {
       'ZZ-TREE ALPHA', 'PLASTIC BAG PE', 'กว้าง/Width 8 นิ้ว × ยาว/Length 12 นิ้ว', { customer: 'ZZ' },
     )
     await waitFor(() => expect(screen.getByText('ZZT/64-01')).toBeTruthy())
-    // newest first: the three prices read down the years
-    const cells = screen.getAllByText(/^(78|71|65)\.000$/).map((el) => el.textContent)
-    expect(cells.indexOf('78.000')).toBeLessThan(cells.indexOf('65.000'))
+    // newest first: the three prices read down the years (CEO 2026-09: 2 decimals)
+    const cells = screen.getAllByText(/^(78|71|65)\.00$/).map((el) => el.textContent)
+    expect(cells.indexOf('78.00')).toBeLessThan(cells.indexOf('65.00'))
   })
 
   it('a double-click on a quote opens the same Details window as the table', async () => {

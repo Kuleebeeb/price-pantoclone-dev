@@ -33,15 +33,10 @@ HEADER_SUBTITLE = APP_SUBTITLE + " • ระยะที่ 1 / Phase 1"
 # gate.py:150 prints "v" + version.split(" ")[0]; app.py:51 holds the version.
 VERSION_LABEL = "v1.7.1"
 
-# In the order the work happens (CEO, 30-08-2026): a sample is measured and
-# sent before the drawing is approved, and a COA is issued per lot AFTER
-# production - so it sits after planning, never before.
 TABS = {
     "pricing": "คำนวณราคา / Pricing",
-    "sample": "ตรวจตัวอย่าง / Sample Inspection",
-    "drawing": "แบบขออนุมัติ / Drawing for Approval",
     "planning": "ข้อมูลวางแผนการผลิต / Production Planning",
-    "coa": "ใบรับรอง COA / COA & Quality",
+    "drawing": "แบบขออนุมัติ / Drawing for Approval",
     "history": "ประวัติ / Quote History",
 }
 
@@ -493,6 +488,7 @@ FORMULAS = {
 # would be a question the calculation never reads.
 FIELDS_BY_PRODUCT = {
     "flat": ["width", "length", "thickness"],
+    "sleeve": ["width", "length", "thickness"],
     "opaque": ["width", "length", "thickness"],
     "gusset": ["width", "length", "gusset", "thickness"],
     "roll": ["width", "sold_length", "thickness"],

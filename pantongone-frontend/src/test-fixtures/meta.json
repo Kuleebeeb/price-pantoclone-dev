@@ -3,8 +3,9 @@
  "version_label": "v1.7.1",
  "products": {
   "flat": "ถุงพลาสติกเปิดปากตรง (Plastic Bag)",
-  "opaque": "แผ่นพลาสติก (Plastic Sheet)",
   "gusset": "ถุงพับข้าง (Gusset Bag)",
+  "sleeve": "ปลอกพลาสติกเปิดสองด้าน (Open-Ended Plastic Sleeve)",
+  "opaque": "แผ่นพลาสติก (Plastic Sheet)",
   "roll": "ม้วนพลาสติก (Plastic Roll)",
   "cover": "ถุงคลุมสินค้า (Product Cover)"
  },
@@ -26,6 +27,7 @@
  ],
  "default_weight_formulas": {
   "flat": "width_cm * material_length_cm * 2 * (thickness_side_mm / 10) * density_g_cm3",
+  "sleeve": "width_cm * length_cm * 2 * (thickness_side_mm / 10) * density_g_cm3",
   "gusset": "(width_cm + gusset_cm) * material_length_cm * 2 * (thickness_side_mm / 10) * density_g_cm3",
   "roll": "width_cm * sold_length_m * 100 * 2 * (thickness_side_mm / 10) * density_g_cm3",
   "opaque": "width_cm * length_cm * (thickness_side_mm / 10) * density_g_cm3",
@@ -65,10 +67,8 @@
   "header_subtitle": "โปรแกรมคำนวณราคาพลาสติก / Plastic pricing • ระยะที่ 1 / Phase 1",
   "tabs": {
    "pricing": "คำนวณราคา / Pricing",
-   "sample": "ตรวจตัวอย่าง / Sample Inspection",
-   "drawing": "แบบขออนุมัติ / Drawing for Approval",
    "planning": "ข้อมูลวางแผนการผลิต / Production Planning",
-   "coa": "ใบรับรอง COA / COA & Quality",
+   "drawing": "แบบขออนุมัติ / Drawing for Approval",
    "history": "ประวัติ / Quote History"
   },
   "buttons": {
@@ -603,7 +603,7 @@
     "holes_dia": "ขนาดรูเจาะ Ø (มม.) / Hole Diameter",
     "label_w": "ลาเบลกว้าง (มม.) / Label Width",
     "label_h": "ลาเบลสูง (มม.) / Label Height",
-    "extra_notes": "ลักษณะพิเศษที่ลูกค้าอนุมัติ บรรทัดละหนึ่งข้อ / Approved special characteristics, one per line"
+    "extra_notes": "หมายเหตุเพิ่มเติม บรรทัดละหนึ่งข้อ / Extra notes, one per line"
    },
    "not_issued": "— ยังไม่ออกเลข / not issued —",
    "notes": {
@@ -668,6 +668,11 @@
   },
   "fields_by_product": {
    "flat": [
+    "width",
+    "length",
+    "thickness"
+   ],
+   "sleeve": [
     "width",
     "length",
     "thickness"
