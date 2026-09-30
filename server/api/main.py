@@ -1531,17 +1531,23 @@ def api_planning_sources(q: str = "", limit: int = Query(default=12, ge=1, le=50
     return {"rows": [{**row, "line": _source_line(row)} for row in rows]}
 
 
+def _within(value: float, nominal: float, tolerance: float) -> bool:
+    """On the limit is in: 0.17 - 0.16 is 0.010000000000000009 in floating point."""
+    return abs(float(value) - nominal) <= tolerance + 1e-9
+
+
 def _coa_source(quote: dict[str, Any]) -> dict[str, Any]:
     inputs = quote["inputs_json"]
     normalized = inputs.get("normalized", {})
-    results = quote["results_json"]
     thickness = inputs.get("thickness", {})
     return {
         "quote_ref": quote["quote_ref"], "customer": quote["customer"],
         "customer_code": quote["customer_code"], "part_no": quote["product_reference"],
         "product": quote["item_description"] or quote["product_label"], "size_text": quote["size_text"],
         "width_mm": float(normalized.get("width_cm", 0) or 0) * 10,
-        "length_mm": float(results.get("material_length_cm", normalized.get("length_cm", 0)) or 0) * 10,
+        # The QUOTED length: material_length_cm adds the bottom allowance that
+        # sits below the seal, so a 12-inch bag was inspected at 314.8 mm.
+        "length_mm": float(normalized.get("length_cm", 0) or 0) * 10,
         "thickness_mm": thickness_to_mm(float(thickness.get("value", 0) or 0), thickness.get("unit", "มม.")),
         "thickness_mode": thickness.get("mode", "pair"), "line": _source_line(quote),
         "special_requirements": str(inputs.get("special_requirements") or ""),
@@ -1597,7 +1603,7 @@ def api_sample_save(req: SampleInspectionSaveRequest) -> dict[str, Any]:
                 item_results[key] = ""
             else:
                 nominal, tolerance = specs[key]
-                ok = nominal - tolerance <= float(value) <= nominal + tolerance
+                ok = _within(value, nominal, tolerance)
                 item_results[key] = "PASS" if ok else "FAIL"; checks.append(ok)
         results.append({**values, "results": item_results})
     overall = "" if not checks else ("PASS" if all(checks) else "FAIL")
@@ -1678,9 +1684,9 @@ def api_coa_save(req: CoaSaveRequest) -> dict[str, Any]:
     automatic_result = req.result
     if all(value is not None for value in actuals):
         automatic_result = "PASS" if (
-            abs(float(req.actual_width_mm) - source["width_mm"]) <= req.width_tolerance_mm
-            and abs(float(req.actual_length_mm) - source["length_mm"]) <= req.length_tolerance_mm
-            and abs(float(req.actual_thickness_mm) - source["thickness_mm"]) <= req.thickness_tolerance_mm
+            _within(req.actual_width_mm, source["width_mm"], req.width_tolerance_mm)
+            and _within(req.actual_length_mm, source["length_mm"], req.length_tolerance_mm)
+            and _within(req.actual_thickness_mm, source["thickness_mm"], req.thickness_tolerance_mm)
         ) else "FAIL"
     if req.status == "FINAL" and not (req.lot_no and req.inspection_date and req.result and req.checked_by and req.approved_by):
         raise HTTPException(status_code=400, detail="FINAL ต้องมี Lot, Inspection Date, Result, Checked by และ Approved by")
@@ -2234,6 +2240,12 @@ def api_get(quote_ref: str) -> dict[str, Any]:
 
 @app.delete("/api/quotations/{quote_ref:path}")
 def api_delete(quote_ref: str) -> dict[str, Any]:
+    # A COA or sample report issued from this quotation holds it by FK; without
+    # this the delete died as a bare 500 "Internal Server Error".
+    used_by = db.quotation_references(quote_ref)
+    if used_by:
+        raise HTTPException(status_code=409, detail="ลบไม่ได้ ใบเสนอราคานี้ถูกใช้ในเอกสาร " + ", ".join(used_by)
+                            + " / Cannot delete: used by " + ", ".join(used_by))
     if not db.delete_quotation(quote_ref):
         raise HTTPException(status_code=404, detail="ไม่พบใบเสนอราคา / Quotation not found")
     return {"deleted": quote_ref}

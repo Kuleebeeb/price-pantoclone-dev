@@ -161,5 +161,52 @@ for dep in ("blown", "cutting"):
                                                    "quantity": "1000", "production": {}})
     check(f"{dep} work order prints the product type", s == 200 and "Open-Ended Plastic Sleeve" in str(wo.get("html", "")), str(wo)[:300])
 
+# --- the three faults the browser check found on the real API (30-09-2026) ---
+# A flat bag keeps the default 1 cm bottom allowance: that centimetre is material
+# below the seal (calculator.py: "Quoted/spec length remains untouched"), so a
+# 12-inch bag is inspected at 304.8 mm - what the mock showed the CEO.
+flat = dict(base, product_key="flat", length_reference="opening_to_seal",
+            bottom_allowance={"value": 1, "unit": "ซม."},
+            thickness={"value": 0.16, "unit": "มม.", "mode": "pair"})
+s, qf = call("POST", "/api/quotations", {"calc": flat, "quote_date": "2026-09-30", "customer": "CSK Plasatic Co.,Ltd",
+                                        "customer_code": "CSK", "item_description": "PE BAG 4 x 12 inch",
+                                        "product_reference": "4P677198-1"})
+fref = qf.get("quote_ref", "")
+check("save a flat bag with the 1 cm bottom allowance", s == 200 and fref, qf)
+s, src = call("GET", f"/api/sample-inspections/sources?q={fref}")
+one = next((r for r in src.get("rows", []) if r.get("quote_ref") == fref), {})
+check("sample source: 12 inch is inspected at 304.8 mm, not the 314.8 mm material length",
+      abs(float(one.get("length_mm", 0)) - 304.8) < 1e-6, one.get("length_mm"))
+s, csrc = call("GET", f"/api/coa/sources?q={fref}")
+one = next((r for r in csrc.get("rows", []) if r.get("quote_ref") == fref), {})
+check("COA source: the same 304.8 mm", abs(float(one.get("length_mm", 0)) - 304.8) < 1e-6, one.get("length_mm"))
+
+# A sample exactly on every limit passes - 0.17 - 0.16 is 0.010000000000000009
+# in floating point, and a micrometer that reads 0.17 is on the limit.
+lim = {"width": 111.6, "length": 294.8, "thickness": 0.17, "gusset_left": None, "gusset_right": None}
+lim2 = {"width": 91.6, "length": 314.8, "thickness": 0.15, "gusset_left": None, "gusset_right": None}
+s, si = call("POST", "/api/sample-inspections", {"quote_ref": fref, "inspection_date": "2026-09-30",
+             "tolerance_width_mm": 10, "tolerance_length_mm": 10, "tolerance_thickness_mm": 0.01,
+             "tolerance_gusset_left_mm": 0, "tolerance_gusset_right_mm": 0, "measurements": [lim, lim2],
+             "remarks": "", "checked_by": "QC", "approved_by": ""})
+row = si.get("row", {}) if isinstance(si, dict) else {}
+check("sample on every limit -> PASS", s == 200 and row.get("overall_result") == "PASS", (s, row.get("overall_result"), row.get("results_json")))
+
+coa = {"status": "FINAL", "quote_ref": fref, "po_no": "PO-LIM", "lot_no": "L-LIM", "inspection_date": "2026-09-30",
+       "width_tolerance_mm": 10, "length_tolerance_mm": 10, "thickness_tolerance_mm": 0.01,
+       "actual_width_mm": 111.6, "actual_length_mm": 294.8, "actual_thickness_mm": 0.17,
+       "result": "PASS", "checked_by": "QC", "approved_by": "QA"}
+s, cf = call("POST", "/api/coa", coa)
+crow = cf.get("row", {}) if isinstance(cf, dict) else {}
+check("COA on every limit (0.17 vs 0.16 +/- 0.01) -> PASS", s == 200 and crow.get("result") == "PASS", (s, crow.get("result")))
+s, cf2 = call("POST", "/api/coa", dict(coa, status="DRAFT", lot_no="L-OUT", actual_thickness_mm=0.171))
+check("COA just past the limit (0.171) -> FAIL", s == 200 and (cf2.get("row") or {}).get("result") == "FAIL", cf2)
+
+# Deleting a quotation a FINAL COA points at is refused with the reason, not a 500.
+s, d = call("DELETE", "/api/quotations/" + urllib.parse.quote(fref, safe=""))
+check("delete a quotation a COA uses -> 409 naming the COA", s == 409 and str(crow.get("certificate_no", "?")) in str(d), (s, d))
+s, f3 = call("GET", f"/api/quotations/{fref}/form")
+check("the quotation is still there", s == 200, (s, f3))
+
 print("\nHONG - %d buoc sai: %s" % (len(bad), bad) if bad else "\nKHOP - moi luong thang 9 cua CEO chay tren may chu that")
 sys.exit(1 if bad else 0)

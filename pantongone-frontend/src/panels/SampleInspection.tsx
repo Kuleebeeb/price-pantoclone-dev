@@ -11,7 +11,7 @@ export function SampleInspection({initialQuoteRef='',onBack}:{initialQuoteRef?:s
  useEffect(()=>{void load()},[]);useEffect(()=>{const t=setTimeout(()=>sampleSources(q).then(x=>setSources(x.rows)),250);return()=>clearTimeout(t)},[q])
  useEffect(()=>{if(!initialQuoteRef)return;setQ(initialQuoteRef);sampleSources(initialQuoteRef).then(x=>{setSources(x.rows);const exact=x.rows.find(row=>row.quote_ref===initialQuoteRef)??x.rows[0];if(exact)pick(exact)})},[initialQuoteRef])
  const actual=(i:number,key:keyof SampleMeasurement,v:string)=>{const measurements=form.measurements.map((m,j)=>j===i?{...m,[key]:n(v)}:m);patch({measurements})}
- const fixed2=(v:number)=>Number(Number(v).toFixed(2)).toString();const limit=(nom:number,tol:number)=>`${fixed2(nom-tol)} – ${fixed2(nom+tol)}`;const pass=(v:number|null,nom:number,tol:number)=>v==null?'WAITING':Math.abs(v-nom)<=tol?'PASS':'FAIL'
+ const fixed2=(v:number)=>Number(Number(v).toFixed(2)).toString();const limit=(nom:number,tol:number)=>`${fixed2(nom-tol)} – ${fixed2(nom+tol)}`;const pass=(v:number|null,nom:number,tol:number)=>v==null?'WAITING':Math.abs(v-nom)<=tol+1e-9?'PASS':'FAIL'
  const save=async()=>{try{const x=await saveSampleInspection(form);patch({id:x.row.id});setMessage(`บันทึกแล้ว ${x.row.report_no}`);await load()}catch(e){alert(e instanceof Error?e.message:String(e))}}
  const print=async(id=form.id)=>{if(!id){alert('กรุณาบันทึกก่อนพิมพ์');return}const x=await samplePrintHtml(id);const w=window.open('','_blank');if(w){w.document.write(x.html);w.document.close()}}
  const esc=(v:unknown)=>s(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]||c))

@@ -367,6 +367,21 @@ def delete_quotation(quote_ref: str) -> bool:
         return cur.rowcount > 0
 
 
+def quotation_references(quote_ref: str) -> list[str]:
+    """The COA and sample reports still pointing at a quotation (the FKs of 0007/0008)."""
+    with pool().connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT COALESCE(certificate_no, 'COA DRAFT #' || id) AS doc
+              FROM coa_certificates WHERE quote_ref = %s
+            UNION ALL
+            SELECT report_no FROM sample_inspections WHERE quote_ref = %s
+            """,
+            (quote_ref, quote_ref),
+        ).fetchall()
+    return [row["doc"] for row in rows]
+
+
 def related_quotations(
     *, product_reference: str, item_description: str, size_text: str
 ) -> list[dict[str, Any]]:

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  ApiError,
   deleteQuotation,
   historySearch,
   pushToPacos,
@@ -188,8 +189,9 @@ export function History({ labels, products, customers, onEdit, onCopy, onCreateS
       onStatus(words.deleted_status.split('{ref}').join(row.ref))
       window.alert(words.deleted_body.split('{ref}').join(row.ref))
       search()
-    } catch {
-      window.alert(words.delete_missing)
+    } catch (e) {
+      // 409: a COA / sample report holds it, and the server names which
+      window.alert(e instanceof ApiError && e.status !== 404 ? e.message : words.delete_missing)
     }
   }
 
