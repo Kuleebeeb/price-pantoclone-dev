@@ -16,9 +16,9 @@ import type { CalcRequest, CalcResponse, DrawingRequest, QuoteRow } from './calc
 const TOKEN_KEY = 'pantongone.token'
 const USER_KEY = 'pantongone.user'
 
-/* permissions arrive when the sign-in went through PacOs: what that account
- * may do THERE, kept so a later bridge can hide a button rather than let
- * somebody press it and be refused. Absent for a local account. */
+/* permissions: what the server will let this account do - PacOs's ticks for a
+ * PacOs account, every key for a local one. lib/permissions.ts reads them to
+ * hide the tabs and buttons that would only be refused. */
 export type User = { id: number; email: string; full_name: string; permissions?: string[] }
 
 export type Session = { token: string; expires_at: number; user: User }
@@ -125,6 +125,15 @@ export async function signIn(email: string, password: string): Promise<Session> 
 export function signOut() {
   forget()
   onSignedOut?.()
+}
+
+/* The held session's permissions, asked again instead of trusted from the
+ * last sign-in: a session kept from before a release that added screens must
+ * not open on a desk with every tab hidden. */
+export async function refreshUser(session: Session): Promise<Session> {
+  const next = { ...session, user: await getMe() }
+  remember(next)
+  return next
 }
 
 // ---------------------------------------------------------------- the screen
@@ -340,7 +349,7 @@ export type Meta = {
  *  cannot be behind the sign-in. */
 export const getMeta = () => request<Meta>('/api/meta')
 
-export const getMe = () => request<{ user: User }>('/api/me')
+export const getMe = () => request<User>('/api/me')
 
 // --------------------------------------------------------- the calculations
 

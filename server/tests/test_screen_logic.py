@@ -295,12 +295,15 @@ DESKTOP_ROW = dict(
     },
 )
 main.db.get_quotation = lambda ref: DESKTOP_ROW
-form = main.api_quotation_form("QT-20260827-0009")["form"]
+# The route reads who is asking (a drawing-only account gets no prices); the
+# middleware puts the signed-in row there, and a local account holds every key.
+SIGNED_IN = type("R", (), {"state": type("S", (), {"user": {"permissions": []}})()})()
+form = main.api_quotation_form("QT-20260827-0009", SIGNED_IN)["form"]
 check("desktop-shaped width unfolds", (form["width"], form["width_unit"]), ("45", "ซม."))
 check("Thai sale basis maps to kg", form["sale_basis"], "kg")
 check("pair mode survives the trip", (form["thickness"], form["thickness_mode"]), ("0.08", "pair"))
 check("untyped boxes come back empty, not 0", form["pack_quantity"], "")
-check_in("the header says Editing with the ref", "กำลังแก้ไข / Editing: QT-20260827-0009", main.api_quotation_form("QT-20260827-0009")["ref_text"])
+check_in("the header says Editing with the ref", "กำลังแก้ไข / Editing: QT-20260827-0009", main.api_quotation_form("QT-20260827-0009", SIGNED_IN)["ref_text"])
 main.db.get_quotation = lambda ref: FAKE_QUOTE if ref == "QT-20260827-0009" else None
 
 # --------------------------------------------------- work order + print sheet

@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { Desk } from './Desk'
 import * as api from '@/lib/api'
 import fixture from '@/test-fixtures/meta.json'
+import { EVERY_KEY } from '@/lib/permissions'
 
 /* THE THREE PRICE BOXES OBEY THE SALE BASIS.
  *
@@ -31,7 +32,7 @@ const meta = fixture as unknown as api.Meta
 const session = {
   token: 't',
   expires_at: 9999999999,
-  user: { id: 1, email: 'test@test.local', full_name: 'Tester' },
+  user: { id: 1, email: 'test@test.local', full_name: 'Tester', permissions: EVERY_KEY },
 } as api.Session
 
 function draw() {

@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 import auth
 import pacos_gate
+import permissions
 import store
 
 router = APIRouter(prefix="/api")
@@ -134,7 +135,9 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "id": user["id"],
         "email": user["email"],
         "full_name": user["full_name"],
-        "permissions": list(user.get("permissions") or []),
+        # What the server will let through, so the screen hides exactly that -
+        # every key for a local account, not the empty list its row holds.
+        "permissions": permissions.held(user),
     }
 
 

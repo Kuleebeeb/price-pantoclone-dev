@@ -12,6 +12,7 @@ import {
 } from '@/lib/api'
 import { Suggest } from '@/ui/Suggest'
 import { orderedProducts } from '@/lib/calc'
+import { CALCULATE, DELETE, DRAWING, SAMPLE } from '@/lib/permissions'
 import { HistoryTree } from './HistoryTree'
 import './History.css'
 
@@ -40,6 +41,9 @@ type Props = {
    *  stays, disabled, saying why - a button that vanishes is a feature
    *  nobody knows exists. */
   bridgeOn?: boolean
+  /** Whether this account holds a key (lib/permissions.ts). A button the
+   *  server would refuse is not drawn; leaving it out allows everything. */
+  can?: (key: string) => boolean
 }
 
 function openSheet(html: string) {
@@ -73,7 +77,7 @@ function displayCell(key: string, value: string | undefined) {
   return Number(plain).toFixed(2)
 }
 
-export function History({ labels, products, customers, onEdit, onCopy, onCreateSample, onCreateDrawing, onStatus, bridgeOn = false }: Props) {
+export function History({ labels, products, customers, onEdit, onCopy, onCreateSample, onCreateDrawing, onStatus, bridgeOn = false, can = () => true }: Props) {
   const [customer, setCustomer] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -409,32 +413,32 @@ export function History({ labels, products, customers, onEdit, onCopy, onCreateS
         <button type="button" onClick={() => showDetails()}>
           {words.buttons.details}
         </button>
-        <button
+        {can(SAMPLE) && <button
           type="button"
           className="hx-sample"
           disabled={!selectedRow || !onCreateSample}
           onClick={() => selectedRow && onCreateSample?.(selectedRow.ref)}
         >
           ทำใบตัวอย่าง / Create Sample
-        </button>
-        <button
+        </button>}
+        {can(DRAWING) && <button
           type="button"
           className="hx-drawing"
           disabled={!selectedRow || !onCreateDrawing}
           onClick={() => selectedRow && onCreateDrawing?.(selectedRow.ref)}
         >
           ทำแบบอนุมัติ / Create Drawing
-        </button>
-        <button type="button" disabled={!selectedRow} onClick={() => selectedRow && onEdit(selectedRow.ref)}>
+        </button>}
+        {can(CALCULATE) && <button type="button" disabled={!selectedRow} onClick={() => selectedRow && onEdit(selectedRow.ref)}>
           แก้ไขข้อมูล / Edit
-        </button>
-        <button type="button" disabled={!selectedRow || !onCopy} onClick={() => selectedRow && onCopy?.(selectedRow.ref)}>คัดลอกเป็นรายการใหม่ / Copy as New</button>
+        </button>}
+        {can(CALCULATE) && <button type="button" disabled={!selectedRow || !onCopy} onClick={() => selectedRow && onCopy?.(selectedRow.ref)}>คัดลอกเป็นรายการใหม่ / Copy as New</button>}
         <button type="button" disabled={!selectedRow} onClick={printSelected}>
           {words.buttons.print_selected}
         </button>
-        <button type="button" disabled={!selectedRow} onClick={deleteSelected}>
+        {can(DELETE) && <button type="button" disabled={!selectedRow} onClick={deleteSelected}>
           {words.buttons.delete_selected}
-        </button>
+        </button>}
         <button type="button" onClick={showRelated}>
           {words.buttons.related}
         </button>

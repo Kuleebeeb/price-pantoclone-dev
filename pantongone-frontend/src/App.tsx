@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import {
   getMeta,
+  refreshUser,
   setSignedOutHandler,
   signOut,
   storedSession,
@@ -31,13 +32,23 @@ export default function App() {
   const [metaError, setMetaError] = useState('')
 
   useEffect(() => {
-    setSession(storedSession())
-    setReady(true)
     /* One handler for the whole app: when the server says a token is finished,
      * the sign-in screen comes back wherever somebody happened to be. The
      * alternative is every screen remembering to check, and the one that
      * forgets leaves a person clicking a dead page. */
     setSignedOutHandler(() => setSession(null))
+    const held = storedSession()
+    if (!held) {
+      setReady(true)
+      return
+    }
+    /* Which tabs to draw is the server's answer, asked before the desk is
+     * drawn - not the list kept from the last sign-in. A 401 here signs out
+     * through the handler above; no answer at all keeps what was held. */
+    refreshUser(held)
+      .then(setSession)
+      .catch(() => setSession(storedSession()))
+      .finally(() => setReady(true))
   }, [])
 
   /* The labels are fetched BEFORE the sign-in, because the sign-in screen is

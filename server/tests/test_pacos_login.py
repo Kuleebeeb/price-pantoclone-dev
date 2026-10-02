@@ -251,6 +251,12 @@ try:
     s, r, _ = call("GET", "/api/me", bearer=token)
     check("/api/me answers with the same permissions", s == 200 and "pricing.sign_in" in r.get("permissions", []), r)
 
+    # the door is not a screen: this account holds pricing.sign_in and no
+    # pricing.coa, so the COA list is refused with the key to ask PacOs for
+    s, r, _ = call("GET", "/api/coa", bearer=token)
+    check("the door alone does not open the COA tab, and says which key would",
+          s == 403 and "pricing.coa" in str(r.get("error")), (s, r))
+
     # switched off locally -> the token dies at once; PacOs's next yes revives the row
     with store.pool().connection() as conn:
         conn.execute("UPDATE users SET is_active = FALSE WHERE email = %s", (CEO,))

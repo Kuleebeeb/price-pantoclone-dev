@@ -105,7 +105,11 @@ class PacosStandIn(BaseHTTPRequestHandler):
         if self.path == "/api/v1/auth/login":
             if body.get("email", "").lower() == CEO and body.get("password") == "ceo-pass-123456":
                 self._send(200, {"user": {"id": "u-ceo", "email": CEO, "full_name": "CEO", "roles": ["ceo"],
-                                          "permissions": ["pricing.sign_in", "quotations.create"]},
+                                          # what PacOs 0138 hands the ceo role
+                                          "permissions": ["pricing.sign_in", "pricing.calculate", "pricing.save",
+                                                          "pricing.history", "pricing.delete", "pricing.drawing",
+                                                          "pricing.sample_inspection", "pricing.planning",
+                                                          "pricing.coa", "quotations.create"]},
                                  "access_token": "acc", "expires_in": 900, "refresh_token": "ref"})
             else:
                 self._send(401, {"error": "That email and password do not match."})

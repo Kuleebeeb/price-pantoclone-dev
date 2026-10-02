@@ -17,7 +17,9 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, Field
+from starlette.routing import Match
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "core"))
 
@@ -52,6 +54,7 @@ import releases  # noqa: E402
 import routes_auth  # noqa: E402
 import pacos_gate  # noqa: E402
 import pacos_bridge  # noqa: E402
+import permissions  # noqa: E402
 import routes_bridge  # noqa: E402
 import store  # noqa: E402
 
@@ -627,13 +630,29 @@ async def require_signed_in(request: Request, call_next):
     if path.startswith("/api/") and path not in OPEN_PATHS:
         header = request.headers.get("authorization")
         try:
-            routes_auth.current_user(header)
+            user = routes_auth.current_user(header)
         except HTTPException as exc:
             return JSONResponse(
                 status_code=exc.status_code,
                 content={"error": str(exc.detail), "detail": str(exc.detail)},
             )
+        # Signed in, but allowed THIS? One table in permissions.py, and a route
+        # it does not know is refused rather than waved through - unless there
+        # is no such route at all, which FastAPI's own 404/405 says better.
+        if permissions.required(request.method, path) is not None or _route_answers(request):
+            refused = permissions.refusal(request.method, path, user)
+            if refused:
+                return JSONResponse(status_code=403, content={"error": refused, "detail": refused})
+        request.state.user = user
     return await call_next(request)
+
+
+def _route_answers(request: Request) -> bool:
+    # API routes only: the web build is mounted at "/" and would match anything.
+    return any(
+        isinstance(route, APIRoute) and route.matches(request.scope)[0] == Match.FULL
+        for route in app.routes
+    )
 
 
 app.include_router(routes_auth.router)
@@ -1200,10 +1219,13 @@ def api_details(quote_ref: str) -> dict[str, Any]:
 
 
 @app.get("/api/quotations/{quote_ref:path}/form")
-def api_quotation_form(quote_ref: str) -> dict[str, Any]:
+def api_quotation_form(quote_ref: str, request: Request) -> dict[str, Any]:
     """Everything the Edit button pours back into the form (app.py:4185-4296),
     as the strings the boxes should hold - one mapper for both the web's flat
-    inputs and the desktop's nested `dimensions` shape."""
+    inputs and the desktop's nested `dimensions` shape.
+
+    The drawing tab reads the same record for its sizes. Somebody who may draw
+    but not price gets it without the price fields (permissions.PRICE_FIELDS)."""
     row = db.get_quotation(quote_ref)
     if row is None:
         raise HTTPException(
@@ -1230,7 +1252,7 @@ def api_quotation_form(quote_ref: str) -> dict[str, Any]:
     sold_length = measure("sold_length", "เมตร")
     allowance = measure("bottom_allowance", "ซม.")
     thickness_value = float(thickness.get("value") or 0)
-    return {
+    answer = {
         "quote_ref": row["quote_ref"],
         "form": {
             "customer": row["customer"],
@@ -1284,6 +1306,10 @@ def api_quotation_form(quote_ref: str) -> dict[str, Any]:
             + str(row["quote_ref"])
         ),
     }
+    if permissions.CALCULATE not in permissions.held(request.state.user):
+        for key in permissions.PRICE_FIELDS:
+            answer["form"].pop(key, None)
+    return answer
 
 
 # --------------------------------------------------------------------------- #

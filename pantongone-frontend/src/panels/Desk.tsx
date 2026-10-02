@@ -16,6 +16,7 @@ import {
   type SourceRow,
 } from '@/lib/api'
 import { orderedProducts, type CalcRequest, type CalcResponse, type Form, type ProductKey } from '@/lib/calc'
+import { CALCULATE, SAMPLE, SAVE, can, openTabs, type Tab } from '@/lib/permissions'
 import { History } from '@/panels/History'
 import { Drawing } from '@/panels/Drawing'
 import { Coa } from '@/panels/Coa'
@@ -44,7 +45,6 @@ import './Desk.css'
  * itself.
  */
 
-type Tab = 'pricing' | 'sample' | 'planning' | 'drawing' | 'coa' | 'history'
 type PricingMode = 'trial' | 'official'
 
 /* Written down ONCE, and they are the desktop's own starting values
@@ -284,7 +284,17 @@ type Props = {
 
 export function Desk({ meta, session, onSignOut }: Props) {
   const [form, setForm] = useState<Form>(() => blank(meta))
-  const [tab, setTab] = useState<Tab>('pricing')
+  /* Only the tabs this account holds a key for (lib/permissions.ts). Every
+   * setTab below goes through the same list, so a button that jumps to a tab
+   * the person may not open does nothing rather than open a screen the server
+   * would refuse - and those buttons are hidden anyway. */
+  const tabs = openTabs(session.user)
+  const may = (key: string) => can(session.user, key)
+  const [tab, pickTab] = useState<Tab>(() => tabs[0] ?? 'pricing')
+  const setTab = (id: Tab) => {
+    if (tabs.includes(id)) pickTab(id)
+  }
+  const showing = (id: Tab) => tab === id && tabs.includes(id)
   const [pricingMode, setPricingMode] = useState<PricingMode>('trial')
   const [sampleQuoteRef, setSampleQuoteRef] = useState('')
   const [drawingQuoteRef, setDrawingQuoteRef] = useState('')
@@ -705,7 +715,9 @@ export function Desk({ meta, session, onSignOut }: Props) {
           that runs off the edge of a narrow window. Sync/Server are not here:
           this screen IS the server - every save already lands on it. */}
       <div className="desk-actions">
-        <nav className="desk-bar">
+        {/* Every button on this bar works the pricing form, so the bar is the
+            pricing key's: an account that may not price sees none of it. */}
+        {may(CALCULATE) && <nav className="desk-bar">
           <button type="button" onClick={newRecord}>
             {labels.buttons.new}
           </button>
@@ -715,7 +727,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
           {tab !== 'pricing' && <button type="button" className="desk-accent" onClick={() => runCalculate()}>
             {labels.buttons.calculate}
           </button>}
-          {tab !== 'pricing' && <button type="button" className="desk-accent" onClick={keep} disabled={saving}>
+          {tab !== 'pricing' && may(SAVE) && <button type="button" className="desk-accent" onClick={keep} disabled={saving}>
             {labels.buttons.save}
           </button>}
           <button type="button" onClick={printSummary}>
@@ -724,13 +736,13 @@ export function Desk({ meta, session, onSignOut }: Props) {
           <button type="button" onClick={() => setHelpOpen(true)}>
             {labels.buttons.variables}
           </button>
-        </nav>
+        </nav>}
         <p className="desk-status">{status ?? labels.notes.ready}</p>
       </div>
 
       <div className="desk-workspace">
       <div className="desk-tabs desk-mainnav" role="tablist" aria-label="เมนูส่วนงานหลัก">
-        {(['pricing', 'sample', 'drawing', 'planning', 'coa', 'history'] as Tab[]).map((id) => (
+        {tabs.map((id) => (
           <button
             key={id}
             type="button"
@@ -746,7 +758,14 @@ export function Desk({ meta, session, onSignOut }: Props) {
 
       <main className="desk-workspace-content">
 
-      {tab === 'pricing' && (
+      {tabs.length === 0 && (
+        <p className="desk-status" role="alert">
+          บัญชีนี้ยังไม่ได้รับสิทธิ์ใช้หน้าใดเลย ขอสิทธิ์ pricing.* จากผู้ดูแลบัญชีใน PacOs / this account has
+          no screen ticked yet - ask whoever manages accounts in PacOs for the pricing.* keys
+        </p>
+      )}
+
+      {showing('pricing') && (
         <section className="desk-tabbody">
           <div className="desk-pricingmodes" role="group" aria-label="รูปแบบการคำนวณราคา">
             <button
@@ -773,7 +792,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
               <strong>2. คำนวณราคาจริง</strong>
               <span>เก็บข้อมูลและออกเลขเอกสาร / Official</span>
             </button>
-            <button
+            {may(SAMPLE) && <button
               type="button"
               className="is-sample"
               onClick={() => {
@@ -783,7 +802,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
             >
               <strong>3. ทำตัวอย่างให้ลูกค้า</strong>
               <span>ใบตรวจตัวอย่าง / Sample inspection</span>
-            </button>
+            </button>}
           </div>
           {/* The compact card - the ONLY card the desktop's Pricing tab draws.
               Its section banner is deliberately removed (app.py:1006). */}
@@ -1138,14 +1157,14 @@ export function Desk({ meta, session, onSignOut }: Props) {
           </div>
           <div className="desk-pricing-bottom" aria-label="คำสั่งคำนวณราคา">
             <button type="button" className="desk-accent" onClick={() => runCalculate()} disabled={saving}>{labels.buttons.calculate}</button>
-            <button type="button" className="desk-accent" onClick={keep} disabled={saving || pricingMode === 'trial'}>{saving ? 'กำลังเก็บข้อมูล…' : labels.buttons.save}</button>
+            {may(SAVE) && <button type="button" className="desk-accent" onClick={keep} disabled={saving || pricingMode === 'trial'}>{saving ? 'กำลังเก็บข้อมูล…' : labels.buttons.save}</button>}
             <button type="button" disabled={saving || !lastSavedRef} onClick={() => editFromHistory(lastSavedRef)}>แก้ไขรายการที่บันทึกล่าสุด</button>
             <span role="status">{editingRef ? `กำลังแก้ไขอ้างอิง ${editingRef} — บันทึกเป็นรุ่นใหม่ เก็บต้นฉบับเดิม` : status ?? labels.notes.ready}</span>
           </div>
         </section>
       )}
 
-      {tab === 'planning' && (
+      {showing('planning') && (
         <section className="desk-tabbody">
           {/* Card 1 - the source picker (app.py:1122-1211). */}
           <div className="desk-card">
@@ -1491,15 +1510,15 @@ export function Desk({ meta, session, onSignOut }: Props) {
         </section>
       )}
 
-      {tab === 'drawing' && (
+      {showing('drawing') && (
         <Drawing labels={labels} form={form} meta={meta} customers={customers} initialQuoteRef={drawingQuoteRef} />
       )}
 
-      {tab === 'sample' && <SampleInspection initialQuoteRef={sampleQuoteRef} onBack={() => setTab('pricing')} />}
+      {showing('sample') && <SampleInspection initialQuoteRef={sampleQuoteRef} onBack={() => setTab(may(CALCULATE) ? 'pricing' : (tabs[0] ?? 'sample'))} />}
 
-      {tab === 'coa' && <Coa />}
+      {showing('coa') && <Coa />}
 
-      {tab === 'history' && (
+      {showing('history') && (
         <History
           labels={labels}
           products={meta?.products ?? {}}
@@ -1510,6 +1529,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
           onCreateDrawing={createDrawingFromQuote}
           onStatus={setStatus}
           bridgeOn={meta?.pacos_bridge ?? false}
+          can={may}
         />
       )}
       </main>
