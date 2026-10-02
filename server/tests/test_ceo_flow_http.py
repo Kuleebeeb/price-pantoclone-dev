@@ -188,7 +188,7 @@ check("quotation referenced by a FINAL COA refuses delete (409)", s == 409 and "
 s, r = call("POST", "/api/quotations", {"calc": calc, "quote_date": "2026-08-30", "customer": "CEO-FLOW-TEST Co.,Ltd",
                                         "customer_code": "CEOFLOW", "item_description": "PE BAG 4 x 12 inch (unreferenced)"})
 QT2 = r.get("quote_ref", "") if isinstance(r, dict) else ""
-s, r = call("DELETE", "/api/quotations/" + urllib.parse.quote(QT2, safe=""))
+s, r = call("DELETE", "/api/quotations/" + urllib.parse.quote(QT2, safe=""), {"reason": "test clean-up"})
 check("quotation nothing points at still deletes (200)", s == 200 and r.get("deleted") == QT2, (s, r))
 
 print()

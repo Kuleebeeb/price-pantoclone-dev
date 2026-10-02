@@ -80,6 +80,9 @@ RULES: list[tuple[frozenset[str], re.Pattern[str], frozenset[str]]] = [
         ("GET", r"/api/quotations/" + _REF + r"/(details|print)", {HISTORY}),
         ("GET", r"/api/quotations/" + _REF, {HISTORY}),
         ("DELETE", r"/api/quotations/" + _REF, {DELETE}),
+        # The trash Delete moves a quotation into, and Restore out of it.
+        ("GET", r"/api/history/trash", {DELETE}),
+        ("POST", r"/api/quotations/" + _REF + r"/restore", {DELETE}),
         # Drawing tab.
         ("POST", r"/api/drawing(/html)?", {DRAWING}),
         ("GET POST", r"/api/drawings", {DRAWING}),
@@ -112,6 +115,7 @@ PRICE_FIELDS = (
     "sale_basis",
     "price_per_kg",
     "price_per_piece",
+    "price_per_roll",
     "price_formula",
 )
 

@@ -521,10 +521,19 @@ export const quotationForm = (quoteRef: string) =>
     `/api/quotations/${encodeURIComponent(quoteRef)}/form`,
   )
 
-export const deleteQuotation = (quoteRef: string) =>
-  request<{ deleted: string }>(`/api/quotations/${encodeURIComponent(quoteRef)}`, {
+export const deleteQuotation = async (quoteRef: string, reason: string, actor: string) => {
+  const capability = await quotationTrash()
+  if (capability.reason_required !== true) throw new Error('บริการยังเป็นรุ่นเดิม กรุณาเริ่มบริการโปรแกรมใหม่ก่อนลบ เพื่อบันทึกเหตุผลให้ครบถ้วน')
+  return request<{ deleted: string }>(`/api/quotations/${encodeURIComponent(quoteRef)}`, {
     method: 'DELETE',
+    body: JSON.stringify({ reason, actor }),
   })
+}
+
+export type TrashRow = { ref: string; reason: string; actor: string; time: string }
+export const quotationTrash = () => request<{ rows: TrashRow[]; reason_required?: boolean }>('/api/history/trash')
+export const restoreQuotation = (ref: string) => request<{ restored: string }>(
+  `/api/quotations/${encodeURIComponent(ref)}/restore`, { method: 'POST' })
 
 /** The approval drawing, as SVG, drawn by the desktop program's own
  *  drawing.py on the server. */
@@ -718,6 +727,8 @@ export const workOrderHtml = (body: {
 /** The A4 print summary, built by the server from the same request the
  *  calculation uses - same figures, same Thai, same auto window.print(). */
 export const printHtml = (body: {
+  moq_quantity?: string
+  moq_unit?: string
   calc: CalcRequest
   quote_date: string
   customer: string
@@ -737,6 +748,8 @@ export const printSaved = (quoteRef: string) =>
  *  stores what IT got, so what ends up under somebody's name is a number this
  *  system produced rather than one the browser sent up (LAW K1). */
 export const saveQuotation = (body: {
+  moq_quantity?: string
+  moq_unit?: string
   calc: CalcRequest
   quote_date: string
   customer: string

@@ -8,8 +8,9 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from psycopg import Connection
+from psycopg import Connection, sql
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 MIGRATIONS_DIR = Path(__file__).with_name("migrations")
@@ -149,7 +150,19 @@ HISTORY_SELECT = (
     " results_json->>'calculated_price_per_kg' AS calc_price_kg,"
     " results_json->>'calculated_price_per_piece_from_kg' AS calc_price_piece,"
     " results_json->>'production_items_per_kg' AS production_items_per_kg,"
-    " results_json->>'selling_price_per_kg' AS selling_price_per_kg"
+    " results_json->>'selling_price_per_kg' AS selling_price_per_kg,"
+    # MOQ and selling by the roll (CEO 02-10-2026). Absent on older rows,
+    # which the cells then leave blank.
+    " inputs_json->>'moq_quantity' AS moq_quantity,"
+    " inputs_json->>'moq_unit' AS moq_unit,"
+    " inputs_json->>'selling_price_per_kg_override' AS price_kg_basis,"
+    " inputs_json->>'selling_price_per_roll_override' AS price_per_roll,"
+    " results_json->>'roll_kg' AS roll_kg,"
+    " results_json->>'roll_price' AS roll_price,"
+    " results_json->>'roll_sale_price' AS roll_sale_price,"
+    " results_json->>'roll_quantity' AS roll_quantity,"
+    " results_json->>'roll_total_kg' AS roll_total_kg,"
+    " results_json->>'roll_total_price' AS roll_total_price"
     " FROM quotations "
 )
 
@@ -361,10 +374,84 @@ def get_quotation(quote_ref: str) -> dict[str, Any] | None:
         ).fetchone()
 
 
-def delete_quotation(quote_ref: str) -> bool:
+def trash_quotation(
+    quote_ref: str, *, reason: str, typed_actor: str, user_id: int | None, user_name: str
+) -> bool:
+    """Move one quotation into quotation_trash, whole, in one transaction.
+    False when there is no such reference."""
     with pool().connection() as conn:
-        cur = conn.execute("DELETE FROM quotations WHERE quote_ref = %s", (quote_ref,))
-        return cur.rowcount > 0
+        with conn.transaction():
+            row = conn.execute(
+                "DELETE FROM quotations q WHERE q.quote_ref = %s RETURNING to_jsonb(q) AS row_json",
+                (quote_ref,),
+            ).fetchone()
+            if row is None:
+                return False
+            conn.execute(
+                """
+                INSERT INTO quotation_trash (quote_ref, row_json, reason, typed_actor,
+                                             deleted_by_user_id, deleted_by)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (quote_ref, Jsonb(row["row_json"]), reason, typed_actor, user_id, user_name),
+            )
+    return True
+
+
+def list_trash(limit: int = 500) -> list[dict[str, Any]]:
+    with pool().connection() as conn:
+        return conn.execute(
+            """
+            SELECT quote_ref, reason, typed_actor, deleted_by, deleted_at
+              FROM quotation_trash
+             WHERE restored_at IS NULL
+             ORDER BY deleted_at DESC, id DESC
+             LIMIT %s
+            """,
+            (limit,),
+        ).fetchall()
+
+
+def restore_quotation(quote_ref: str, *, user_id: int | None, user_name: str) -> bool:
+    """Put a trashed quotation back exactly as it was - same id, same figures.
+
+    Only the columns the saved document has AND the table still has are
+    written, so a column added after the delete takes its default instead of
+    being forced to NULL. False when nothing is in the trash under that
+    reference; UniqueViolation when the reference is in use again."""
+    with pool().connection() as conn:
+        with conn.transaction():
+            entry = conn.execute(
+                "SELECT id, row_json FROM quotation_trash"
+                " WHERE quote_ref = %s AND restored_at IS NULL"
+                " ORDER BY deleted_at DESC, id DESC LIMIT 1 FOR UPDATE",
+                (quote_ref,),
+            ).fetchone()
+            if entry is None:
+                return False
+            existing = {
+                r["column_name"]
+                for r in conn.execute(
+                    "SELECT column_name FROM information_schema.columns"
+                    " WHERE table_schema = current_schema() AND table_name = 'quotations'"
+                )
+            }
+            # "id" is GENERATED ALWAYS (0001): OVERRIDING SYSTEM VALUE keeps the old one.
+            columns = [c for c in entry["row_json"] if c in existing]
+            names = sql.SQL(", ").join(sql.Identifier(c) for c in columns)
+            conn.execute(
+                sql.SQL(
+                    "INSERT INTO quotations ({names}) OVERRIDING SYSTEM VALUE"
+                    " SELECT {names} FROM jsonb_populate_record(NULL::quotations, %s)"
+                ).format(names=names),
+                (Jsonb(entry["row_json"]),),
+            )
+            conn.execute(
+                "UPDATE quotation_trash SET restored_at = now(), restored_by_user_id = %s,"
+                " restored_by = %s WHERE id = %s",
+                (user_id, user_name, entry["id"]),
+            )
+    return True
 
 
 def quotation_references(quote_ref: str) -> list[str]:
@@ -400,7 +487,8 @@ def related_quotations(
                    results_json->>'calculated_price_per_kg' AS calc_price_kg,
                    results_json->>'calculated_price_per_piece_from_kg' AS calc_price_piece,
                    results_json->>'production_items_per_kg' AS production_items_per_kg,
-                   results_json->>'selling_price_per_kg' AS selling_price_per_kg
+                   results_json->>'selling_price_per_kg' AS selling_price_per_kg,
+                   inputs_json->>'selling_price_per_kg_override' AS price_kg_basis
             FROM quotations
             WHERE (%s <> '' AND product_reference = %s)
                OR (%s <> '' AND %s <> '' AND item_description = %s AND size_text = %s)

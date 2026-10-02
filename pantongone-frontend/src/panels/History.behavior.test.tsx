@@ -2,7 +2,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { History } from './History'
+import { History, historyPrintHtml } from './History'
 import * as api from '@/lib/api'
 import fixture from '@/test-fixtures/meta.json'
 
@@ -21,10 +21,24 @@ vi.mock('@/lib/api', async () => {
   return {
     ...real,
     historySearch: vi.fn(),
+    deleteQuotation: vi.fn().mockResolvedValue({deleted:'QT-20260827-0001'}),
   }
 })
 
 const labels = (fixture as unknown as api.Meta).labels
+it('prints roll prices in separate columns and keeps mixed companies together', () => {
+  const roll={ref:'R1',customer:'Same Co.',sale_unit:'ม้วน / roll',item:'Film <test>',roll_price:'1,407.60',roll_sale_price:'1,500.00',roll_quantity:'20',roll_total_price:'30,000.00',roll_kg:'16.56',size:'180 ซม. × 100 เมตร/ม้วน',moq:'20 ม้วน'}
+  const html=historyPrintHtml([roll])
+  expect(html).toContain('<th>คำนวณ บาท/ม้วน</th>')
+  expect(html).toContain('<th>ขายจริง บาท/ม้วน</th>')
+  expect(html).toContain('<td>1,500.00</td>')
+  expect(html).toContain('<td>30,000.00</td>')
+  expect(html).toContain('Film &lt;test&gt;')
+  expect(html).not.toContain(' | ราคา ')
+  const mixed=historyPrintHtml([roll,{ref:'P1',customer:'Same Co.',sale_unit:'ใบ / piece',item:'Bag',grams:'2.50',price:'0.30'}])
+  expect(mixed.match(/<h2>/g)).toHaveLength(1)
+  expect(mixed).toContain('2.50 กรัม/ใบ')
+})
 
 const ROW = {
   ref: 'QT-20260827-0001',
@@ -87,7 +101,7 @@ describe('the history filters and buttons', () => {
     draw()
     await screen.findByText('ZZ-EYE Co., Ltd.')
     const edit = screen.getByRole('button', { name: 'แก้ไขข้อมูล / Edit' })
-    const del = screen.getByRole('button', { name: 'ลบรายการที่เลือก / Delete Selected' })
+    const del = screen.getByRole('button', { name: 'ย้ายรายการที่ไฮไลต์ไปถังขยะ' })
     expect(edit).toBeDisabled()
     expect(del).toBeDisabled()
     await userEvent.click(screen.getByText('ZZ-EYE Co., Ltd.'))
@@ -106,6 +120,20 @@ describe('the history filters and buttons', () => {
     expect(size).toHaveValue('')
     expect(api.historySearch).toHaveBeenCalledTimes(2)
     expect(vi.mocked(api.historySearch).mock.calls.at(-1)?.[0].size).toBe('')
+  })
+
+  it('requires reason and operator before moving the exact row to trash', async () => {
+    draw()
+    await userEvent.click(await screen.findByText(ROW.customer))
+    await userEvent.click(screen.getByRole('button',{name:'ย้ายรายการที่ไฮไลต์ไปถังขยะ'}))
+    const confirm=screen.getByRole('button',{name:'ยืนยันย้ายไปถังขยะ'})
+    expect(confirm).toBeDisabled()
+    await userEvent.type(screen.getByLabelText('เหตุผลที่ลบ (ต้องกรอก)'), 'บันทึกซ้ำ')
+    expect(confirm).toBeDisabled()
+    await userEvent.type(screen.getByLabelText(/ชื่อผู้ดำเนินการ/), 'ผู้ทดสอบ')
+    expect(confirm).toBeEnabled()
+    await userEvent.click(confirm)
+    expect(api.deleteQuotation).toHaveBeenCalledWith(ROW.ref,'บันทึกซ้ำ','ผู้ทดสอบ')
   })
 
   it('copies selected record and opens escaped A4 report without saving', async () => {
