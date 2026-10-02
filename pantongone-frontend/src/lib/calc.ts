@@ -30,6 +30,7 @@ export function orderedProducts(products: Record<string, string> = {}): [Product
 }
 
 export type CalcRequest = {
+  selling_price_per_roll_override?: number | null
   product_key: ProductKey
   width: Measure
   length: Measure
@@ -43,7 +44,7 @@ export type CalcRequest = {
   material_price_per_kg: number
   deduction_percent: number
   apply_deduction: boolean
-  sale_basis: 'kg' | 'piece'
+  sale_basis: 'kg' | 'piece' | 'roll'
   selling_price_per_piece_override: number
   selling_price_per_kg_override: number
   pack_quantity: number
@@ -97,6 +98,9 @@ export type QuoteRow = {
  * a width is.
  */
 export type Form = {
+  price_per_roll?: string
+  moq_quantity?: string
+  moq_unit?: 'piece' | 'kg' | 'roll' | ''
   customer: string
   customer_code: string
   quote_date: string
@@ -122,7 +126,7 @@ export type Form = {
   material_price: string
   deduction: string
   apply_deduction: boolean
-  sale_basis: 'kg' | 'piece'
+  sale_basis: 'kg' | 'piece' | 'roll'
   price_per_kg: string
   price_per_piece: string
 

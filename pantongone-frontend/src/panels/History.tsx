@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  ApiError,
   deleteQuotation,
+  quotationTrash, restoreQuotation, type TrashRow,
   historySearch,
   pushToPacos,
   quotationDetails,
@@ -56,15 +56,37 @@ function openSheet(html: string) {
 
 type Row = { ref: string; [key: string]: string }
 
-function printRows(rows: Row[]) {
+export function historyPrintHtml(rows: Row[]) {
   const escape = (value: string) => value.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!))
   const groups = new Map<string, Row[]>()
-  // Group identical company names, not placeholder customer codes. Do not merge aliases.
   rows.forEach(r => { const key = (r.customer ?? '').trim() || `ไม่ระบุบริษัท (${r.customer_code})`; groups.set(key, [...(groups.get(key) ?? []), r]) })
-  const cols: [string, string][] = [['ref','เลขอ้างอิง'],['date','วันที่'],['product','รหัสสินค้า'],['item','รายการ'],['size','ขนาด'],['thickness','ความหนา'],['grams','น้ำหนักต่อใบ (กรัม)'],['sale_unit','หน่วยขาย'],['calc_price','คำนวณ บาท/ใบ'],['price','บันทึกเดิม บาท/ใบ'],['price_kg','ฐานราคา บาท/กก.']]
-  const sheets = [...groups].map(([company, entries]) => `<section><h1>PANTONG THAI PACK CO., LTD.</h1><h2>ประวัติราคาที่บันทึก — ${escape(company)}</h2><p>${entries.length} รายการ · รวมฉบับแก้ไข · ไม่ใช่ใบเสนอราคาฉบับอนุมัติ</p><table><thead><tr>${cols.map(([,label])=>`<th>${label}</th>`).join('')}</tr></thead><tbody>${entries.map(r=>`<tr>${cols.map(([key])=>`<td>${escape(displayCell(key,r[key]))}${key==='ref' ? `<br><small>รหัสลูกค้าเดิม: ${escape(r.customer_code || 'ไม่ระบุ')}</small>` : ''}</td>`).join('')}</tr>`).join('')}</tbody></table><p>รวมตามชื่อบริษัท รหัสลูกค้าเดิมแสดงใต้เลขอ้างอิง โดยไม่เปลี่ยนข้อมูลที่บันทึก</p><p>คำนวณ บาท/ใบ = ฐานราคา/กก. ÷ จำนวนใบ/กก. จากน้ำหนักของแต่ละรายการ ใช้ค่าหักจำนวนที่บันทึกเฉพาะหน่วยขายเป็นใบ; ขายเป็น กก. ไม่หักจำนวน</p><p>บันทึกเดิม บาท/ใบ แสดงราคาเดิมเพื่อเปรียบเทียบ ไม่ได้เขียนทับข้อมูล ช่องว่างหมายถึงไม่มีข้อมูลเพียงพอ ราคาฐานต่อ กก. ไม่ใช่ต้นทุนวัตถุดิบ</p></section>`).join('')
-  const toolbar = `<nav class="report-tools"><button type="button" onclick="if(window.opener &amp;&amp; !window.opener.closed){window.opener.focus();window.close()}else{alert('กรุณาสลับกลับแท็บ PantongOne เดิม หน้านี้เป็นรายงานแยกต่างหาก')}">← กลับหน้าประวัติ</button><button type="button" onclick="window.print()">พิมพ์ / บันทึก PDF</button><span>กลับไปหน้าประวัติเดิม โดยไม่โหลดข้อมูลใหม่</span></nav>`
-  openSheet(`<!doctype html><html lang="th"><meta charset="utf-8"><title>ประวัติราคาแยกบริษัท</title><style>@page{size:A4 landscape;margin:10mm}body{font:12px Tahoma,Arial,sans-serif;color:#000}h1{font-size:17px}h2{font-size:15px}.report-tools{position:sticky;top:0;background:#eef4fc;padding:12px;display:flex;gap:12px;align-items:center;border:1px solid #789}.report-tools button{font:16px Tahoma,sans-serif;padding:10px 18px;cursor:pointer}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #444;padding:5px;overflow-wrap:anywhere}thead{display:table-header-group}tr{break-inside:avoid}section{break-after:page}section:last-child{break-after:auto}@media print{.report-tools,button{display:none}}</style>${toolbar}${sheets}</html>`)
+  const sheets = [...groups].map(([company, entries]) => {
+    const rollOnly = entries.every(r => r.sale_unit === 'ม้วน / roll')
+    const includesRoll = entries.some(r => r.sale_unit === 'ม้วน / roll')
+    const columns: [string, string][] = [
+      ['ref','เลขอ้างอิง / วันที่'],['item','รายการ / รหัสสินค้า'],['spec','ขนาด / ความหนา'],
+      ['weight',rollOnly ? 'กก./ม้วน' : includesRoll ? 'น้ำหนัก / หน่วย' : 'น้ำหนักต่อใบ (กรัม)'],['sale_unit','หน่วยขาย'],
+      ['calculated',rollOnly ? 'คำนวณ บาท/ม้วน' : 'คำนวณ บาท/ใบ หรือม้วน'],
+      ['actual',rollOnly ? 'ขายจริง บาท/ม้วน' : 'บันทึกเดิม บาท/ใบ / ขายจริง บาท/ม้วน'],
+      ['price_kg','ฐานราคา บาท/กก.'],['moq','MOQ']]
+    if (includesRoll) columns.push(['roll_quantity','จำนวนม้วน'],['roll_total_price','ยอดรวม บาท'])
+    const body=entries.map(r => {
+      const roll=r.sale_unit === 'ม้วน / roll'
+      const cells: Record<string,string> = {...r,
+        ref:[r.ref,r.date,'รหัสลูกค้า: '+(r.customer_code || 'ไม่ระบุ')].join('\n'),
+        item:[r.item,r.product].filter(Boolean).join('\n'),spec:[r.size,r.thickness].filter(Boolean).join('\n'),
+        weight:roll ? r.roll_kg+' กก./ม้วน' : displayCell('grams',r.grams)+(includesRoll && r.grams ? ' กรัม/ใบ' : ''),
+        calculated:roll ? (r.roll_price ?? '') : displayCell('calc_price',r.calc_price),
+        actual:roll ? (r.roll_sale_price || 'ใช้ราคาคำนวณ') : displayCell('price',r.price)}
+      return '<tr>'+columns.map(([key])=>'<td>'+escape(cells[key] || '')+'</td>').join('')+'</tr>'
+    }).join('')
+    return '<section><h1>PANTONG THAI PACK CO., LTD.</h1><h2>ประวัติราคาที่บันทึก — '+escape(company)+'</h2><p>'+entries.length+' รายการ · รวมฉบับแก้ไข · ไม่ใช่ใบเสนอราคาฉบับอนุมัติ</p><table><thead><tr>'+columns.map(([,label])=>'<th>'+label+'</th>').join('')+'</tr></thead><tbody>'+body+'</tbody></table><p>ราคาคำนวณต่อม้วน = น้ำหนักสุทธิ/ม้วน × ฐานราคา/กก. ไม่รวมแกน ไม่หักจำนวน 10%</p><p>ยอดรวมม้วน = ราคาขายจริง × จำนวนม้วน หากไม่ได้กรอกราคาขายจริง ใช้ราคาคำนวณ ไม่เปลี่ยนข้อมูลเดิมที่บันทึก</p><p>รายการขายเป็นใบใช้ค่าหักจำนวนที่บันทึก ช่องว่างหมายถึงไม่มีข้อมูล ราคาฐานต่อ กก. ไม่ใช่ต้นทุนวัตถุดิบ</p></section>'
+  }).join('')
+  return '<!doctype html><html lang="th"><meta charset="utf-8"><title>ประวัติราคาแยกบริษัท</title><style>@page{size:A4 landscape;margin:10mm}body{font:11px Tahoma,Arial,sans-serif;color:#000}h1{font-size:17px}h2{font-size:15px}nav{padding:12px;background:#eef4fc}button{padding:10px;margin-right:10px}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{border:1px solid #444;padding:5px;overflow-wrap:anywhere;white-space:pre-line}thead{display:table-header-group}tr{break-inside:avoid}section{break-after:page}section:last-child{break-after:auto}@media print{nav{display:none}}</style><nav><button onclick="window.close()">← กลับหน้าประวัติ</button><button onclick="window.print()">พิมพ์ / บันทึก PDF</button></nav>'+sheets+'</html>'
+}
+
+function printRows(rows: Row[]) {
+  openSheet(historyPrintHtml(rows))
 }
 
 const twoDecimalColumns = new Set(['grams', 'calc_price', 'price_kg', 'price', 'price_piece', 'pack', 'pack_kg'])
@@ -88,6 +110,12 @@ export function History({ labels, products, customers, onEdit, onCopy, onCreateS
   const [rows, setRows] = useState<Row[]>([])
   const [countText, setCountText] = useState('')
   const [error, setError] = useState('')
+  const [trash, setTrash] = useState<TrashRow[] | null>(null)
+  const [deleting, setDeleting] = useState<Row | null>(null)
+  const [deleteReason, setDeleteReason] = useState('')
+  const [deleteActor, setDeleteActor] = useState('')
+  const [trashBusy, setTrashBusy] = useState(false)
+  const [trashError, setTrashError] = useState('')
   const [selected, setSelected] = useState('')
   /* The rows ticked for PacOs. A Set, because the question asked of it is
    * only ever "is this one in"; kept apart from `selected`, which is the
@@ -187,16 +215,31 @@ export function History({ labels, products, customers, onEdit, onCopy, onCreateS
   async function deleteSelected() {
     const row = needSelection()
     if (!row) return
-    if (!window.confirm(words.delete_confirm.split('{ref}').join(row.ref))) return
+    setDeleting(row); setDeleteReason(''); setDeleteActor(''); setTrashError('')
+  }
+
+  async function confirmDelete() {
+    if (!deleting || trashBusy || !deleteReason.trim() || !deleteActor.trim()) return
+    setTrashBusy(true); setTrashError('')
     try {
-      await deleteQuotation(row.ref)
-      onStatus(words.deleted_status.split('{ref}').join(row.ref))
-      window.alert(words.deleted_body.split('{ref}').join(row.ref))
-      search()
-    } catch (e) {
-      // 409: a COA / sample report holds it, and the server names which
-      window.alert(e instanceof ApiError && e.status !== 404 ? e.message : words.delete_missing)
-    }
+      await deleteQuotation(deleting.ref, deleteReason.trim(), deleteActor.trim())
+      onStatus('ย้าย '+deleting.ref+' ไปถังขยะแล้ว — กู้คืนได้')
+      setDeleting(null); search()
+    } catch (e) { setTrashError(e instanceof Error ? e.message : String(e)) }
+    finally { setTrashBusy(false) }
+  }
+
+  async function showTrash() {
+    try { setTrashError(''); setTrash((await quotationTrash()).rows) }
+    catch (e) { window.alert(e instanceof Error ? e.message : String(e)) }
+  }
+
+  async function restore(ref: string) {
+    if (trashBusy || !window.confirm('กู้คืนรายการ '+ref+' กลับหน้าประวัติหรือไม่?')) return
+    setTrashBusy(true)
+    try { await restoreQuotation(ref); await showTrash(); search(); onStatus('กู้คืน '+ref+' แล้ว') }
+    catch (e) { setTrashError(e instanceof Error ? e.message : String(e)) }
+    finally { setTrashBusy(false) }
   }
 
   async function showRelated() {
@@ -204,8 +247,8 @@ export function History({ labels, products, customers, onEdit, onCopy, onCreateS
     if (!row) return
     try {
       const answer = await relatedTable({
-        product_reference: row._product_reference ?? '',
-        item_description: row._item_description ?? '',
+        product_reference: row._product_reference ?? row.product ?? '',
+        item_description: row._item_description ?? row.item ?? '',
         size_text: row.size ?? '',
       })
       if (!answer.rows.length) {
@@ -437,8 +480,9 @@ export function History({ labels, products, customers, onEdit, onCopy, onCreateS
           {words.buttons.print_selected}
         </button>
         {can(DELETE) && <button type="button" disabled={!selectedRow} onClick={deleteSelected}>
-          {words.buttons.delete_selected}
+          ย้ายรายการที่ไฮไลต์ไปถังขยะ
         </button>}
+        {can(DELETE) && <button type="button" onClick={showTrash}>ถังขยะ / กู้คืนรายการ</button>}
         <button type="button" onClick={showRelated}>
           {words.buttons.related}
         </button>
@@ -455,6 +499,24 @@ export function History({ labels, products, customers, onEdit, onCopy, onCreateS
       </div>
 
       <p className="desk-mutednote">{words.edit_note}</p>
+      {deleting && <dialog open className="hx-dialog" aria-label="เหตุผลก่อนลบ">
+        <h3>ย้ายรายการไปถังขยะ</h3>
+        <p>{deleting.ref} — {deleting.customer} — {deleting.item}</p>
+        <p>เก็บต้นฉบับและเอกสารอ้างอิงไว้ สามารถกู้คืนได้ ไม่ลบถาวร</p>
+        <label>เหตุผลที่ลบ (ต้องกรอก)<textarea autoFocus maxLength={1000} value={deleteReason} disabled={trashBusy} onChange={e=>setDeleteReason(e.target.value)} style={{display:'block',width:'100%',minHeight:90}} /></label>
+        <label>ชื่อผู้ดำเนินการ (ต้องกรอก เนื่องจากใช้บัญชี Demo ร่วมกัน)<input maxLength={200} value={deleteActor} disabled={trashBusy} onChange={e=>setDeleteActor(e.target.value)} /></label>
+        {trashError && <p role="alert">{trashError}</p>}
+        <div className="hx-close"><button disabled={trashBusy} onClick={()=>setDeleting(null)}>ยกเลิก</button><button disabled={trashBusy || !deleteReason.trim() || !deleteActor.trim()} onClick={confirmDelete}>ยืนยันย้ายไปถังขยะ</button></div>
+      </dialog>}
+      {trash && <dialog open className="hx-dialog is-wide" aria-label="ถังขยะ">
+        <h3>ถังขยะ — เก็บประวัติไว้ ไม่ลบถาวร</h3>
+        <p>ผู้ดำเนินการเป็นชื่อที่กรอกขณะใช้บัญชี Demo; รายการเก่าอาจไม่มีเหตุผลหรือชื่อ</p>
+        {trashError && <p role="alert">{trashError}</p>}
+        <div style={{maxHeight:'55vh',overflow:'auto'}}><table className="desk-table"><thead><tr><th>เลขรายการ</th><th>เหตุผล</th><th>ผู้ดำเนินการ</th><th>วันเวลาที่ลบ</th><th>กู้คืน</th></tr></thead><tbody>
+          {trash.map(r=><tr key={r.ref}><td>{r.ref}</td><td style={{whiteSpace:'pre-wrap'}}>{r.reason}</td><td>{r.actor}</td><td>{r.time ? new Date(r.time).toLocaleString('th-TH') : 'ไม่ระบุ'}</td><td><button disabled={trashBusy} onClick={()=>restore(r.ref)}>กู้คืน</button></td></tr>)}
+        </tbody></table>{!trash.length && <p>ไม่มีรายการในถังขยะ</p>}</div>
+        <div className="hx-close"><button disabled={trashBusy} onClick={()=>setTrash(null)}>ปิด</button></div>
+      </dialog>}
 
       {details && (
         <dialog

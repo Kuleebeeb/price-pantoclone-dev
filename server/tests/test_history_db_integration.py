@@ -276,10 +276,11 @@ check("related pack cell says Not Set for paper", rel["rows"][0]["pack_kg"] == "
 
 # ------------------------------------------------------------------- clean up
 print("Clean up - and DELETE through a slash is itself under test")
-s, _ = call("DELETE", "/api/quotations/" + enc)
+GONE = {"reason": "test clean-up"}
+s, _ = call("DELETE", "/api/quotations/" + enc, GONE)
 check("delete opens through the slash", s == 200)
 for ref in (EXE_REF, WEB_REF):
-    call("DELETE", "/api/quotations/" + urllib.parse.quote(ref, safe=""))
+    call("DELETE", "/api/quotations/" + urllib.parse.quote(ref, safe=""), GONE)
 s, h = call("GET", "/api/history?customer=ZZHIST")
 check("nothing test-shaped left behind", s == 200 and h.get("rows") == [], h)
 

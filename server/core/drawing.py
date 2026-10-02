@@ -229,9 +229,10 @@ def _flat_bag(pen: Pen, area, spec: DrawingSpec):
     left, right = b.p(0, 0)[0], b.p(1, 0)[0]
     bottom, top = b.p(0, 0)[1], b.p(0, 1)[1]
     pen.rect(left, bottom, right - left, top - bottom, 1.7, PALE, INK)
-    pen.line(left, top - 7, right, top - 7, 0.65, MID, [4, 3])
     seal_y = bottom + 14
-    pen.line(left, seal_y, right, seal_y, 1.0, INK, [6, 3])
+    # Solid seal band; its upper edge remains the opening-to-seal datum.
+    pen.line(left, seal_y, right, seal_y, 1.0, INK)
+    pen.line(left, seal_y - 3, right, seal_y - 3, 1.0, INK)
     pen.txt((left + right) / 2, top + 13, "BAG OPENING", 8.5, True, "center", INK)
     pen.txt((left + right) / 2, seal_y + 6, "SEAL LINE", 7.5, True, "center", INK)
     bot_ref = seal_y if spec.length_datum == "opening_to_seal" else bottom
@@ -452,10 +453,39 @@ def wrap_text(text: str, max_pt: float, size: float, bold: bool = True) -> list[
 # --------------------------------------------------------------------------
 # หน้ากระดาษ
 # --------------------------------------------------------------------------
+def _bounded_text(pen, x, top, bottom, width, value, size=9.0):
+    """Wrap complete field values inside their cell; never silently truncate."""
+    value = str(value)
+    while size >= 6.5:
+        lines, line = [], ""
+        for word in value.split():
+            candidate = (line + " " + word).strip()
+            if text_width(candidate, size, False) <= width:
+                line = candidate
+                continue
+            if line:
+                lines.append(line)
+                line = ""
+            for char in word:
+                if line and text_width(line + char, size, False) > width:
+                    lines.append(line)
+                    line = ""
+                line += char
+        if line:
+            lines.append(line)
+        lead = size + 2
+        if not lines or top - (len(lines) - 1) * lead >= bottom:
+            for i, chunk in enumerate(lines):
+                pen.txt(x, top - i * lead, chunk, size, color=DARK)
+            return
+        size = round(size - 0.25, 2)
+    raise DrawingError("ข้อความในช่องข้อมูลยาวเกินพื้นที่ กรุณาย่อข้อความ / Drawing field text does not fit")
+
+
 def _field(pen: Pen, x1, x2, y1, y2, label, value):
     pen.rect(x1, y1, x2 - x1, y2 - y1, 0.7)
     pen.txt(x1 + 5, y2 - 12, label, 8.2, True)
-    pen.txt(x1 + 5, y1 + 7, value, 9.0, False, color=INK)
+    _bounded_text(pen, x1 + 5, y2 - 24, y1 + 4, x2 - x1 - 10, value)
 
 
 def bag_perspective(pen, area, spec):
@@ -509,16 +539,19 @@ def render_svg(spec: DrawingSpec) -> str:
         pen.txt(x1 - 8, yy + 7, value, 8, True, "right", INK)
 
     # แถบข้อมูลแบบ
-    pen.line(x0, INFO_Y, SPLIT_X, INFO_Y, 0.7)
+    info_bottom = INFO_Y - 12
+    pen.line(x0, info_bottom, SPLIT_X, info_bottom, 0.7)
     pen.txt(x0 + 9, 486, "DRAWING INFORMATION", 7.2, True, color=INK)
     info = [("CUSTOMER", spec.customer), ("TITLE", spec.title),
             ("MATERIAL", spec.material), ("COLOR", spec.color), ("PRINTING", spec.printing)]
-    for (label, value), sx in zip(info, [x0 + 9, x0 + 219, x0 + 331, x0 + 431, x0 + 501]):
+    starts = [x0 + 9, x0 + 219, x0 + 331, x0 + 431, x0 + 501]
+    ends = starts[1:] + [SPLIT_X]
+    for (label, value), sx, ex in zip(info, starts, ends):
         pen.txt(sx, 470, label, 7.4, True)
-        pen.txt(sx, 458, value, 7.6, color=DARK)
+        _bounded_text(pen, sx, 458, info_bottom + 4, ex - sx - 8, value, 7.6)
 
     # พื้นที่วาด
-    area = (x0, TITLEBLK_Y, SPLIT_X, INFO_Y)
+    area = (x0, TITLEBLK_Y, SPLIT_X, info_bottom)
     view = spec.drawing_view if spec.shape in ("flat_bag", "gusset_bag") else "2d"
     if view not in ("2d", "3d", "both"):
         raise ValueError("Unsupported drawing view")
@@ -527,8 +560,8 @@ def render_svg(spec: DrawingSpec) -> str:
         callouts = []
     elif view == "both":
         split = x0 + (SPLIT_X - x0) * .62
-        callouts = SHAPES[spec.shape](pen, (x0, TITLEBLK_Y, split, INFO_Y), spec)
-        bag_perspective(pen, (split, TITLEBLK_Y, SPLIT_X, INFO_Y), spec)
+        callouts = SHAPES[spec.shape](pen, (x0, TITLEBLK_Y, split, info_bottom), spec)
+        bag_perspective(pen, (split, TITLEBLK_Y, SPLIT_X, info_bottom), spec)
     else:
         callouts = SHAPES[spec.shape](pen, area, spec)
     for kind, a, b, e1, e2 in callouts:

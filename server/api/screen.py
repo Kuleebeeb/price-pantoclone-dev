@@ -320,6 +320,15 @@ HISTORY_COLUMNS = [
     {"key": "price_kg", "label": "ราคา/กก. / Price/kg", "width": 105},
     {"key": "price", "label": "ราคาขายจริง/ชิ้น / Final Price/Piece", "width": 125},
     {"key": "pack", "label": "น้ำหนักต่อแพ็ก (กก.) / Pack Weight (kg)", "width": 85},
+    # CEO 02-10-2026: MOQ and selling by the roll. Blank on rows that have
+    # neither - labels and widths as on her test server (dev_mock_api.py).
+    {"key": "moq", "label": "จำนวนขั้นต่ำ / MOQ", "width": 160},
+    {"key": "roll_kg", "label": "กก./ม้วน", "width": 140},
+    {"key": "roll_price", "label": "คำนวณ บาท/ม้วน", "width": 140},
+    {"key": "roll_sale_price", "label": "ขายจริง บาท/ม้วน", "width": 140},
+    {"key": "roll_quantity", "label": "จำนวนม้วน", "width": 140},
+    {"key": "roll_total_kg", "label": "น้ำหนักรวม กก.", "width": 140},
+    {"key": "roll_total_price", "label": "ราคารวม บาท", "width": 140},
 ]
 
 # The history tab beyond the table: filter captions, the five buttons, and

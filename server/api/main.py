@@ -9,6 +9,7 @@ between this and the .exe would be a bug in THIS file, never in the formulas.
 
 from __future__ import annotations
 
+import math
 import sys
 from datetime import date
 from pathlib import Path
@@ -18,6 +19,7 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
+from psycopg.errors import UniqueViolation
 from pydantic import BaseModel, Field
 from starlette.routing import Match
 
@@ -62,7 +64,7 @@ import store  # noqa: E402
 # len "1.7.1 (Phase 1) - Planning screen" (app.py:51, mtime 18:12) - MOI HON ban
 # .exe v1.5.1 (17:31). CEO sua nguon nhieu lan mot ngay: truoc khi tin ban clone,
 # so mtime va APP_VERSION cua Z:\1\app.py voi chuoi duoi day.
-APP_VERSION = "src-2026-09-30 CEO handoff 4f7b323 (ui == app.py v1.7.1)"
+APP_VERSION = "src-2026-10-02 CEO handover: MOQ, sell by roll, trash (ui == app.py v1.7.1)"
 app = FastAPI(title="Plastic Pricing", version=APP_VERSION, docs_url="/api/docs")
 
 
@@ -100,9 +102,13 @@ class CalcRequest(BaseModel):
     deduction_percent: float = 10.0
     apply_deduction: bool = True
 
-    sale_basis: Literal["kg", "piece"] = "kg"
+    # "roll": the roll product sold by the roll (CEO 02-10-2026) - priced per
+    # kg, weighed per roll, no 10% deduction. See _roll_checks.
+    sale_basis: Literal["kg", "piece", "roll"] = "kg"
     selling_price_per_piece_override: float = 0.0
     selling_price_per_kg_override: float = 0.0
+    # Blank means "use the calculated price per roll", not zero.
+    selling_price_per_roll_override: float | None = None
 
     pack_quantity: float = 0.0
     sack_quantity: float = 0.0
@@ -238,6 +244,49 @@ class SaveRequest(BaseModel):
     product_reference: str = ""
     product_image_path: str = ""
     revised_from_ref: str = ""
+    moq_quantity: str = ""
+    moq_unit: str = ""
+
+
+# MOQ (CEO 02-10-2026): the smallest order the price holds for. A condition
+# printed beside the price, never a quantity the arithmetic uses.
+MOQ_UNITS = {"piece": "ใบ", "kg": "กก.", "roll": "ม้วน"}
+
+
+def moq_fields(quantity: str, unit: str) -> tuple[str, str]:
+    """The MOQ as it is stored: blank and blank when none was stated - the
+    unit box means nothing without a number - or a number above zero with one
+    of the three units; pieces and rolls come whole."""
+    raw = (quantity or "").strip()
+    if not raw:
+        return "", ""
+    try:
+        number = float(raw)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="MOQ ต้องเป็นตัวเลข / MOQ must be a number") from None
+    if not math.isfinite(number) or number <= 0 or unit not in MOQ_UNITS:
+        raise HTTPException(
+            status_code=400,
+            detail="MOQ ต้องมากกว่า 0 และเลือกหน่วย ใบ / กก. / ม้วน / MOQ must be above 0, with a unit",
+        )
+    if unit in ("piece", "roll") and not number.is_integer():
+        raise HTTPException(
+            status_code=400,
+            detail="MOQ หน่วยใบหรือม้วนต้องเป็นจำนวนเต็ม / MOQ in pieces or rolls must be a whole number",
+        )
+    return raw, unit
+
+
+def moq_text(quantity: Any, unit: Any) -> str:
+    """"1,000 ใบ", "25.5 กก.", or "" - for the history table, details and print."""
+    raw = str(quantity or "").strip()
+    if not raw or unit not in MOQ_UNITS:
+        return ""
+    try:
+        number = float(raw)
+    except ValueError:
+        return ""
+    return format(number, ",.10f").rstrip("0").rstrip(".") + " " + MOQ_UNITS[unit]
 
 
 class CoaSaveRequest(BaseModel):
@@ -525,6 +574,8 @@ def price_basis_summary(req: CalcRequest, res: Any, price_formula: str) -> str:
     adjusted = res.production_items_per_kg
     if req.sale_basis == "kg" and basis > 0:
         return "ราคาขายที่กรอก " + n(basis) + " บาท/กก. / Entered final price per kg"
+    if req.sale_basis == "roll":
+        return n(basis) + " บาท/กก. × " + n(res.grams_per_item / 1000) + " กก./ม้วน / per kg × kg per roll"
     if basis > 0 and adjusted > 0:
         return n(basis) + " บาท/กก. ÷ " + n(adjusted, 2) + " ชิ้น/กก."
     return "สูตรราคา / Price formula: " + price_formula
@@ -535,7 +586,42 @@ def price_basis_summary(req: CalcRequest, res: Any, price_formula: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
+def _roll_checks(req: CalcRequest) -> None:
+    """Selling by the roll (CEO 02-10-2026). The roll product only, a whole
+    number of rolls, a price per kg to start from, and an actual price per
+    roll that is either blank or above zero. Same sentences as the CEO's test
+    server (dev_mock_api.py calc), so the screen reads the same either way."""
+    if req.product_key != "roll":
+        raise ValueError("ขายเป็นม้วนใช้กับสินค้าม้วนพลาสติกเท่านั้น / sell by roll is for the roll product only")
+    quantity = req.order_quantity
+    if not math.isfinite(quantity) or quantity <= 0 or not float(quantity).is_integer():
+        raise ValueError("กรอกจำนวนม้วนเป็นจำนวนเต็มมากกว่า 0 / roll quantity must be a whole number above 0")
+    actual = req.selling_price_per_roll_override
+    if actual is not None and (not math.isfinite(actual) or actual <= 0):
+        raise ValueError(
+            "ราคาขายจริงต่อม้วนต้องมากกว่า 0 หรือเว้นว่างเพื่อใช้ราคาคำนวณ"
+            " / actual price per roll must be above 0, or blank to use the calculated price"
+        )
+    basis = req.selling_price_per_kg_override
+    if not math.isfinite(basis) or basis <= 0:
+        raise ValueError("กรอกราคาขายต่อ กก. มากกว่า 0 / enter a selling price per kg above 0")
+
+
+def effective_request(req: CalcRequest) -> CalcRequest:
+    """What is actually calculated - and therefore what is saved.
+
+    A roll is weighed, not counted, so the production deduction is always off,
+    and the per-piece box means nothing; the screen sends both that way, and
+    the server makes sure of it rather than trusting the screen (LAW K1)."""
+    if req.sale_basis != "roll":
+        return req
+    _roll_checks(req)
+    return req.model_copy(update={"apply_deduction": False, "selling_price_per_piece_override": 0.0})
+
+
 def run_calculation(req: CalcRequest) -> dict[str, Any]:
+    req = effective_request(req)
+    by_roll = req.sale_basis == "roll"
     normalized = normalize(req)
     weight_formula = (req.weight_formula or "").strip() or DEFAULT_WEIGHT_FORMULAS[req.product_key]
     price_formula = (req.price_formula or "").strip() or DEFAULT_PRICE_FORMULA
@@ -561,7 +647,12 @@ def run_calculation(req: CalcRequest) -> dict[str, Any]:
         sack_quantity=req.sack_quantity,
         apply_deduction=req.apply_deduction,
         sell_by_kg=req.sale_basis == "kg",
-        selling_price_per_piece_override=req.selling_price_per_piece_override,
+        # Sold by the roll, one "item" IS a roll: the calculator's per-item
+        # override is the actual price per roll, and its own arithmetic then
+        # gives the totals - no second formula here.
+        selling_price_per_piece_override=(
+            (req.selling_price_per_roll_override or 0.0) if by_roll else req.selling_price_per_piece_override
+        ),
         selling_price_per_kg_override=req.selling_price_per_kg_override,
         order_quantity=req.order_quantity,
         control_min_g=req.control_min_g,
@@ -588,15 +679,64 @@ def run_calculation(req: CalcRequest) -> dict[str, Any]:
         "material_length_cm": res.material_length_cm,
         "markup_percent": markup,
     }
+    display = build_display(req, res, normalized, markup)
+    summary = human_summary(req, res, normalized)
+    if by_roll:
+        results.update(roll_results(req, res))
+        display.update(roll_display(req, results, normalized))
+        summary = summary.split("\n", 1)[0] + "\n" + roll_summary(req, normalized)
     return {
         "raw": res,
+        "request": req,
         "results": results,
         "normalized": normalized,
-        "display": build_display(req, res, normalized, markup),
-        "human_summary": human_summary(req, res, normalized),
+        "display": display,
+        "human_summary": summary,
         "price_basis": price_basis_summary(req, res, price_formula),
         "formulas": {"weight": weight_formula, "price": price_formula},
     }
+
+
+def roll_results(req: CalcRequest, res: Any) -> dict[str, float]:
+    """The six roll figures, read off the calculator's own answer: per roll is
+    per item, and with the deduction off, required kg is rolls x kg/roll."""
+    return {
+        "roll_kg": res.grams_per_item / 1000,
+        "roll_price": res.calculated_price_per_piece_from_kg,
+        "roll_sale_price": res.unit_price,
+        "roll_quantity": req.order_quantity,
+        "roll_total_kg": res.required_kg,
+        "roll_total_price": res.total_price,
+    }
+
+
+def roll_display(req: CalcRequest, results: dict[str, Any], normalized: dict[str, Any]) -> dict[str, str]:
+    """The boxes the pricing tab shows when selling by the roll - the CEO's
+    wording and two decimals, as on her test server (dev_mock_api.py calc)."""
+    sold = g(normalized["sold_length_m"])
+    kg = n(results["roll_kg"], 2)
+    price = n(results["roll_price"], 2)
+    per_kg = n(results["items_per_kg"], 4) + " ม้วน"
+    return {
+        "grams": kg + " กก./ม้วน",
+        "calculated_piece": price + " บาท/ม้วน",
+        "primary_line": sold + " เมตร/ม้วน • " + kg + " กก./ม้วน • " + price + " บาท/ม้วน",
+        "items_per_kg": per_kg,
+        "adjusted_items": per_kg,
+        "roll_total_kg": n(results["roll_total_kg"], 2) + " กก.",
+        "roll_total_price": n(results["roll_total_price"], 2) + " บาท",
+        "derivation": (
+            "ราคา/ม้วน = น้ำหนัก " + kg + " กก./ม้วน × "
+            + n(req.selling_price_per_kg_override, 2) + " บาท/กก. = " + price + " บาท"
+        ),
+    }
+
+
+def roll_summary(req: CalcRequest, normalized: dict[str, Any]) -> str:
+    return (
+        "ความยาว " + g(normalized["sold_length_m"]) + " เมตร/ม้วน • สั่ง " + g(req.order_quantity)
+        + " ม้วน • ไม่รวมแกน ไม่หักจำนวน 10% • คำนวณจากค่าเต็ม"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -786,14 +926,17 @@ def api_save(req: SaveRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="กรุณากรอกชื่อลูกค้า / Customer is required")
     if not req.customer_code.strip():
         raise HTTPException(status_code=400, detail="กรุณากรอกรหัสลูกค้า / Customer code is required")
+    moq_quantity, moq_unit = moq_fields(req.moq_quantity, req.moq_unit)
     try:
         out = run_calculation(req.calc)
     except (ValueError, FormulaError, ZeroDivisionError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    calc = req.calc
+    calc = out["request"]
     res = out["raw"]
     inputs = calc.model_dump(mode="json")
+    inputs["moq_quantity"] = moq_quantity
+    inputs["moq_unit"] = moq_unit
     inputs["normalized"] = out["normalized"]
     inputs["price_basis"] = out["price_basis"]
     inputs["human_summary"] = out["human_summary"]
@@ -883,8 +1026,18 @@ def _sale_is_kg(sale_basis: Any) -> bool:
     return s.startswith("ขายเป็นกิโลกรัม") or s == "kg" or s == ""
 
 
+def _sale_kind(sale_basis: Any) -> Literal["kg", "piece", "roll"]:
+    """kg / piece / roll for the boxes and the sums; old desktop rows hold Thai labels."""
+    if str(sale_basis or "") == "roll":
+        return "roll"
+    return "kg" if _sale_is_kg(sale_basis) else "piece"
+
+
 def _sale_label(sale_basis: Any) -> str:
     s = str(sale_basis or "")
+    # The CEO's history print groups roll rows by this exact text.
+    if s == "roll":
+        return "ม้วน / roll"
     if s in ("kg", "piece", ""):
         return "ขายเป็นกิโลกรัม / Sell by kg" if s != "piece" else "ขายเป็นชิ้น / Sell by piece"
     return s
@@ -910,6 +1063,9 @@ def _f(value: Any, digits: int = 3) -> float | None:
 
 def _calc_price_cells(row: dict[str, Any]) -> tuple[str, str, str]:
     """(calc_price, price_kg, price_piece) exactly as the table prints them."""
+    if row.get("sale_basis") == "roll":
+        # Per-roll figures live in the roll_* columns; these three are per piece.
+        return "—", n(_f(row.get("price_kg_basis")) or 0), "—"
     by_kg = _sale_is_kg(row.get("sale_basis"))
     calc_kg = _f(row.get("calc_price_kg"))
     calc_piece = _f(row.get("calc_price_piece"))
@@ -938,10 +1094,31 @@ def _item_cell(row: dict[str, Any]) -> str:
     )
 
 
+def _roll_cells(row: dict[str, Any]) -> dict[str, str]:
+    """The six roll columns: filled for a roll sold by the roll, blank otherwise.
+    The actual price stays blank when none was typed - the CEO's print then
+    says the calculated price was used."""
+    if row.get("sale_basis") != "roll":
+        return {key: "" for key in ROLL_KEYS}
+    cells = {
+        key: format(_f(row.get(key)) or 0, ",.0f" if key == "roll_quantity" else ",.2f")
+        for key in ROLL_KEYS
+    }
+    if _f(row.get("price_per_roll")) is None:
+        cells["roll_sale_price"] = ""
+    return cells
+
+
+ROLL_KEYS = ("roll_kg", "roll_price", "roll_sale_price", "roll_quantity", "roll_total_kg", "roll_total_price")
+
+
 def _history_cells(row: dict[str, Any]) -> dict[str, str]:
     calc_price, price_kg, price_piece = _calc_price_cells(row)
     pack_qty = float(row.get("pack_quantity") or 0)
+    by_roll = row.get("sale_basis") == "roll"
     return {
+        **_roll_cells(row),
+        "moq": moq_text(row.get("moq_quantity"), row.get("moq_unit")),
         "ref": str(row["quote_ref"]),
         "date": str(row["quote_date"]),
         "customer_code": str(row.get("customer_code") or ""),
@@ -951,12 +1128,12 @@ def _history_cells(row: dict[str, Any]) -> dict[str, str]:
         "product": str(row.get("product_label") or ""),
         "size": str(row.get("size_text") or ""),
         "thickness": _thickness_cell(row.get("thickness_json")),
-        "grams": n(float(row.get("grams_per_item") or 0)),
+        "grams": "—" if by_roll else n(float(row.get("grams_per_item") or 0)),
         "price_basis": str(row.get("price_basis") or ""),
         "calc_price": calc_price,
         "price_kg": price_kg,
         "price": price_piece,
-        "pack": n(float(row.get("pack_weight_kg") or 0), 4) if pack_qty > 0 else "—",
+        "pack": n(float(row.get("pack_weight_kg") or 0), 4) if pack_qty > 0 and not by_roll else "—",
         # Not columns: what the Related Companies button needs from the
         # selected row (app.py:4171-4183). Underscored so no column drifts in.
         "_product_reference": str(row.get("product_reference") or ""),
@@ -1142,7 +1319,8 @@ def api_details(quote_ref: str) -> dict[str, Any]:
     allowance = _inputs_measure(inputs, "bottom_allowance")
     deduction = g(float(inputs.get("deduction_percent") or 0))
     apply_deduction = bool(inputs.get("apply_deduction", True))
-    by_kg = _sale_is_kg(inputs.get("sale_basis"))
+    kind = _sale_kind(inputs.get("sale_basis"))
+    by_kg = kind == "kg"
     pack_qty = float(inputs.get("pack_quantity") or 0)
     sack_qty = float(inputs.get("sack_quantity") or 0)
 
@@ -1173,7 +1351,20 @@ def api_details(quote_ref: str) -> dict[str, Any]:
         "  ฐาน/สูตรที่ใช้คำนวณ / Price Basis/Formula: "
         + str(inputs.get("price_basis") or results.get("price_basis_summary") or ""),
     ]
-    if by_kg:
+    moq = moq_text(inputs.get("moq_quantity"), inputs.get("moq_unit"))
+    if moq:
+        lines.append("  จำนวนสั่งซื้อขั้นต่ำ / MOQ: " + moq)
+    if kind == "roll":
+        actual = inputs.get("selling_price_per_roll_override")
+        lines += [
+            "  น้ำหนักสุทธิต่อม้วน / Net kg per roll: " + rf("roll_kg", 2) + " กก.",
+            "  ราคาคำนวณต่อม้วน / Calculated price per roll: " + rf("roll_price", 2) + " บาท",
+            "  ราคาขายจริงต่อม้วน / Actual price per roll: "
+            + (rf("roll_sale_price", 2) + " บาท" if actual not in (None, "") else "ใช้ราคาคำนวณ / calculated price used"),
+            "  จำนวนม้วน / Rolls: " + rf("roll_quantity", 0),
+            "  น้ำหนักรวม / Total weight: " + rf("roll_total_kg", 2) + " กก.",
+        ]
+    elif by_kg:
         lines.append(
             "  ราคาขายจริงต่อกิโลกรัม / Final Selling Price per kg: "
             + rf("selling_price_per_kg") + " บาท"
@@ -1278,9 +1469,12 @@ def api_quotation_form(quote_ref: str, request: Request) -> dict[str, Any]:
             "material_price": number("material_price_per_kg") or "65",
             "deduction": number("deduction_percent") or "10",
             "apply_deduction": bool(inputs.get("apply_deduction", True)),
-            "sale_basis": "kg" if _sale_is_kg(inputs.get("sale_basis")) else "piece",
+            "sale_basis": _sale_kind(inputs.get("sale_basis")),
             "price_per_kg": number("selling_price_per_kg_override"),
             "price_per_piece": number("selling_price_per_piece_override"),
+            "price_per_roll": number("selling_price_per_roll_override"),
+            "moq_quantity": str(inputs.get("moq_quantity") or ""),
+            "moq_unit": str(inputs.get("moq_unit") or ""),
             "order_quantity": number("order_quantity") or "1000",
             "pack_quantity": number("pack_quantity"),
             "sack_quantity": number("sack_quantity"),
@@ -2037,6 +2231,8 @@ class PrintRequest(BaseModel):
     # Set when the form was loaded from a saved record: the sheet then carries
     # the desktop's own "แก้ไขจาก / Revised From" identity row (app.py:3412-3414).
     revised_from_ref: str = ""
+    moq_quantity: str = ""
+    moq_unit: str = ""
 
 
 def _print_rows(rows: list[tuple[str, Any]]) -> str:
@@ -2060,7 +2256,12 @@ def build_print_html(req: PrintRequest, out: dict[str, Any]) -> str:
     calc = req.calc
     res = out["raw"]
     sale_by_kg = calc.sale_basis == "kg"
-    sale_label = "ขายเป็นกิโลกรัม / Sell by kg" if sale_by_kg else "ขายเป็นชิ้น / Sell by piece"
+    by_roll = calc.sale_basis == "roll"
+    sale_label = (
+        "ขายเป็นม้วน / Sell by roll" if by_roll
+        else "ขายเป็นกิโลกรัม / Sell by kg" if sale_by_kg
+        else "ขายเป็นชิ้น / Sell by piece"
+    )
     not_set = "ยังไม่ได้กำหนด / Not Set"
 
     if calc.product_key == "cover":
@@ -2083,23 +2284,48 @@ def build_print_html(req: PrintRequest, out: dict[str, Any]) -> str:
     ]
     if req.revised_from_ref.strip():
         identity.append(("แก้ไขจาก / Revised From", req.revised_from_ref.strip()))
+    # Only when one was stated: a sheet printed before MOQ existed, reprinted,
+    # must not grow a row it never had.
+    moq = moq_text(req.moq_quantity, req.moq_unit)
+    if moq:
+        identity.append(("จำนวนสั่งซื้อขั้นต่ำ / MOQ", moq + " (เงื่อนไขขั้นต่ำ ไม่ใช่ยอดสั่ง / minimum, not the order)"))
 
     deduction = g(calc.deduction_percent)
     adjusted_suffix = " (เปิด / ON)" if calc.apply_deduction else " (ปิด / OFF)"
-    results: list[tuple[str, Any]] = [
-        ("น้ำหนักต่อชิ้น / Grams per item", n(res.grams_per_item) + " กรัม / g"),
-        ("จำนวนมาตรฐานต่อกก. / Standard items per kg", n(res.items_per_kg, 2)),
-        (
-            "จำนวนหลังหัก " + deduction + "% / Adjusted items per kg",
-            n(res.production_items_per_kg, 2) + adjusted_suffix,
-        ),
-        ("ฐาน/สูตรคำนวณราคา / Price Basis or Formula", out["price_basis"]),
-    ]
+    roll = out.get("results") or {}
+    if by_roll:
+        results: list[tuple[str, Any]] = [
+            ("น้ำหนักสุทธิต่อม้วน / Net weight per roll", n(float(roll.get("roll_kg") or 0), 2) + " กก. / kg"),
+        ]
+    else:
+        results = [
+            ("น้ำหนักต่อชิ้น / Grams per item", n(res.grams_per_item) + " กรัม / g"),
+            ("จำนวนมาตรฐานต่อกก. / Standard items per kg", n(res.items_per_kg, 2)),
+            (
+                "จำนวนหลังหัก " + deduction + "% / Adjusted items per kg",
+                n(res.production_items_per_kg, 2) + adjusted_suffix,
+            ),
+        ]
+    results.append(("ฐาน/สูตรคำนวณราคา / Price Basis or Formula", out["price_basis"]))
     # Only when there is one - the desktop adds this row conditionally
     # (app.py:3427-3430), and a paper-book row has no derivation to show.
     if str(out["human_summary"] or "").strip():
         results.append(("ลำดับตรวจสอบสูตร / Human-readable Verification", out["human_summary"]))
-    if sale_by_kg:
+    if by_roll:
+        typed = calc.selling_price_per_roll_override not in (None, 0)
+        results += [
+            ("ราคาฐานต่อกิโลกรัม / Price basis per kg", n(calc.selling_price_per_kg_override) + " บาท"),
+            ("ราคาคำนวณต่อม้วน / Calculated price per roll", n(float(roll.get("roll_price") or 0), 2) + " บาท"),
+            (
+                "ราคาขายจริงต่อม้วน / Actual selling price per roll",
+                n(float(roll.get("roll_sale_price") or 0), 2) + " บาท"
+                + ("" if typed else " (ใช้ราคาคำนวณ / calculated price used)"),
+            ),
+            ("จำนวนม้วน / Rolls ordered", n(float(roll.get("roll_quantity") or 0), 0) + " ม้วน"),
+            ("น้ำหนักรวม / Total weight", n(float(roll.get("roll_total_kg") or 0), 2) + " กก."),
+            ("ราคารวม / Total price", n(float(roll.get("roll_total_price") or 0), 2) + " บาท"),
+        ]
+    elif sale_by_kg:
         results.append(
             ("ราคาขายจริงต่อกิโลกรัม / Final selling price per kg", n(res.selling_price_per_kg) + " บาท")
         )
@@ -2109,20 +2335,27 @@ def build_print_html(req: PrintRequest, out: dict[str, Any]) -> str:
             ("ราคาต่อชิ้นที่คำนวณได้ / Calculated price per piece", n(res.calculated_price_per_piece_from_kg) + " บาท"),
             ("ราคาขายจริงต่อชิ้น / Final selling price per piece", n(res.unit_price) + " บาท"),
         ]
-    results += [
-        (
-            "บรรจุต่อแพ็ก / Pieces per pack",
-            (n(calc.pack_quantity, 0) + " ชิ้น • " + n(res.pack_weight_kg, 4) + " กก.")
-            if calc.pack_quantity > 0
-            else not_set,
-        ),
-        (
-            "บรรจุต่อกระสอบ / Pieces per sack",
-            (n(calc.sack_quantity, 0) + " ชิ้น • " + n(res.sack_weight_kg, 4) + " กก.")
-            if calc.sack_quantity > 0
-            else not_set,
-        ),
-    ]
+    # A roll sold by the roll has no pack or sack: the pricing tab hides the
+    # Quoted Packaging card for it, and the sheet follows.
+    if not by_roll:
+        results += [
+            (
+                "บรรจุต่อแพ็ก / Pieces per pack",
+                (n(calc.pack_quantity, 0) + " ชิ้น • " + n(res.pack_weight_kg, 4) + " กก.")
+                if calc.pack_quantity > 0
+                else not_set,
+            ),
+            (
+                "บรรจุต่อกระสอบ / Pieces per sack",
+                (n(calc.sack_quantity, 0) + " ชิ้น • " + n(res.sack_weight_kg, 4) + " กก.")
+                if calc.sack_quantity > 0
+                else not_set,
+            ),
+        ]
+    pack_note = (
+        "" if by_roll else
+        "<p class=\"note\">น้ำหนักต่อแพ็ก (กก.) = กรัมต่อชิ้น × ชิ้นในแพ็ก ÷ 1,000 / Pack Weight (kg) = grams per item × pieces per pack ÷ 1,000</p>"
+    )
 
     formulas = [
         ("สูตรน้ำหนัก / Weight Formula", out["formulas"]["weight"]),
@@ -2161,7 +2394,7 @@ def build_print_html(req: PrintRequest, out: dict[str, Any]) -> str:
         "<table>" + _print_rows(identity) + "</table>"
         "<h2>ผลคำนวณและราคา / Calculation &amp; Pricing</h2>"
         "<table class=\"price\">" + _print_rows(results) + "</table>"
-        "<p class=\"note\">น้ำหนักต่อแพ็ก (กก.) = กรัมต่อชิ้น × ชิ้นในแพ็ก ÷ 1,000 / Pack Weight (kg) = grams per item × pieces per pack ÷ 1,000</p>"
+        + pack_note +
         "<h2>สูตรที่บันทึก / Saved Formulas</h2>"
         "<table>" + _print_rows(formulas) + "</table>"
         "</div></body></html>"
@@ -2170,11 +2403,12 @@ def build_print_html(req: PrintRequest, out: dict[str, Any]) -> str:
 
 @app.post("/api/print/html")
 def api_print_html(req: PrintRequest) -> dict[str, Any]:
+    moq_fields(req.moq_quantity, req.moq_unit)
     try:
         out = run_calculation(req.calc)
     except (ValueError, FormulaError, ZeroDivisionError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"html": build_print_html(req, out)}
+    return {"html": build_print_html(req.model_copy(update={"calc": out["request"]}), out)}
 
 
 @app.get("/api/quotations/{quote_ref:path}/print")
@@ -2210,7 +2444,7 @@ def api_print_saved(quote_ref: str) -> dict[str, Any]:
                 unit=str(thickness.get("unit") or "มม."),
                 mode="side" if thickness.get("mode") == "side" else "pair",
             ),
-            sale_basis="kg" if _sale_is_kg(inputs.get("sale_basis")) else "piece",
+            sale_basis=_sale_kind(inputs.get("sale_basis")),
             deduction_percent=float(inputs.get("deduction_percent") or 0),
             apply_deduction=bool(inputs.get("apply_deduction", True)),
             pack_quantity=float(row["pack_quantity"] or 0),
@@ -2218,6 +2452,7 @@ def api_print_saved(quote_ref: str) -> dict[str, Any]:
             selling_price_per_kg_override=float(
                 inputs.get("selling_price_per_kg_override") or results.get("selling_price_per_kg") or 0
             ),
+            selling_price_per_roll_override=_f(inputs.get("selling_price_per_roll_override")),
         ),
         quote_date=str(row["quote_date"]),
         customer=row["customer"],
@@ -2226,8 +2461,12 @@ def api_print_saved(quote_ref: str) -> dict[str, Any]:
         product_reference=row["product_reference"],
         quote_ref=row["quote_ref"],
         revised_from_ref=str(row["revised_from_ref"] or ""),
+        moq_quantity=str(inputs.get("moq_quantity") or ""),
+        moq_unit=str(inputs.get("moq_unit") or ""),
     )
     out = {
+        # The roll figures as saved (LAW P5), read by build_print_html.
+        "results": results,
         "raw": SimpleNamespace(
             grams_per_item=float(row["grams_per_item"] or 0) or rn("grams_per_item"),
             items_per_kg=rn("items_per_kg"),
@@ -2253,6 +2492,36 @@ def api_print_saved(quote_ref: str) -> dict[str, Any]:
     return {"html": build_print_html(req, out)}
 
 
+@app.get("/api/history/trash")
+def api_trash(limit: int = Query(default=500, ge=1, le=1000)) -> dict[str, Any]:
+    """What Delete has moved out of History, newest first. reason_required
+    tells the CEO's screen this server records a reason, so it may delete."""
+    rows = []
+    for r in db.list_trash(limit):
+        actor = str(r["deleted_by"])
+        typed = str(r["typed_actor"] or "").strip()
+        if typed and typed.casefold() != actor.casefold():
+            actor += " (กรอกว่า / typed: " + typed + ")"
+        rows.append({"ref": r["quote_ref"], "reason": r["reason"], "actor": actor,
+                     "time": r["deleted_at"].isoformat()})
+    return {"rows": rows, "reason_required": True}
+
+
+@app.post("/api/quotations/{quote_ref:path}/restore")
+def api_restore(quote_ref: str, request: Request) -> dict[str, Any]:
+    user_id, who = _account_name(request)
+    try:
+        restored = db.restore_quotation(quote_ref, user_id=user_id, user_name=who)
+    except UniqueViolation as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="กู้คืนไม่ได้ เลขนี้มีอยู่ในประวัติแล้ว / cannot restore: this reference is in history again",
+        ) from exc
+    if not restored:
+        raise HTTPException(status_code=404, detail="ไม่พบรายการในถังขยะ / not in the trash")
+    return {"restored": quote_ref}
+
+
 # The greedy pair, LAST on purpose (see the note beside /api/quotations above):
 # {quote_ref:path} is what lets "2569/09-01" - a reference with a slash, held
 # by a customer since before this system existed - reach its own row.
@@ -2264,15 +2533,40 @@ def api_get(quote_ref: str) -> dict[str, Any]:
     return row
 
 
+class QuotationDeleteRequest(BaseModel):
+    reason: str = ""
+    # Typed into the dialog; kept as a note only. Who deleted is the account.
+    actor: str = ""
+
+
+def _account_name(request: Request) -> tuple[int | None, str]:
+    user = getattr(request.state, "user", None) or {}
+    return user.get("id"), (str(user.get("full_name") or "").strip() or str(user.get("email") or "?"))
+
+
 @app.delete("/api/quotations/{quote_ref:path}")
-def api_delete(quote_ref: str) -> dict[str, Any]:
+def api_delete(quote_ref: str, request: Request, req: QuotationDeleteRequest | None = None) -> dict[str, Any]:
+    """Move a quotation to the trash (CEO 02-10-2026) - with a reason, under
+    the signed-in account, and back again with Restore. Never off the disk."""
+    if db.get_quotation(quote_ref) is None:
+        raise HTTPException(status_code=404, detail="ไม่พบใบเสนอราคา / Quotation not found")
     # A COA or sample report issued from this quotation holds it by FK; without
     # this the delete died as a bare 500 "Internal Server Error".
     used_by = db.quotation_references(quote_ref)
     if used_by:
         raise HTTPException(status_code=409, detail="ลบไม่ได้ ใบเสนอราคานี้ถูกใช้ในเอกสาร " + ", ".join(used_by)
                             + " / Cannot delete: used by " + ", ".join(used_by))
-    if not db.delete_quotation(quote_ref):
+    reason = (req.reason if req else "").strip()
+    typed = (req.actor if req else "").strip()
+    if not reason or len(reason) > 1000:
+        raise HTTPException(
+            status_code=400,
+            detail="กรุณากรอกเหตุผลก่อนลบ (ไม่เกิน 1,000 ตัวอักษร) / give a reason before deleting (up to 1,000 characters)",
+        )
+    if len(typed) > 200:
+        raise HTTPException(status_code=400, detail="ชื่อผู้ดำเนินการยาวเกิน 200 ตัวอักษร / name over 200 characters")
+    user_id, who = _account_name(request)
+    if not db.trash_quotation(quote_ref, reason=reason, typed_actor=typed, user_id=user_id, user_name=who):
         raise HTTPException(status_code=404, detail="ไม่พบใบเสนอราคา / Quotation not found")
     return {"deleted": quote_ref}
 

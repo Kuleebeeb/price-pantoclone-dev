@@ -159,9 +159,10 @@ export function toRequest(form: Form, meta: Meta | null): CalcRequest {
     density_g_cm3: n(form.density),
     material_price_per_kg: n(form.material_price),
     deduction_percent: peCover ? 10 : n(form.deduction),
-    apply_deduction: peCover ? form.sale_basis === 'piece' : form.apply_deduction,
+    apply_deduction: form.sale_basis === 'roll' ? false : peCover ? form.sale_basis === 'piece' : form.apply_deduction,
     sale_basis: form.sale_basis,
-    selling_price_per_piece_override: n(form.price_per_piece),
+    selling_price_per_piece_override: form.sale_basis === 'roll' ? 0 : n(form.price_per_piece),
+    selling_price_per_roll_override: form.sale_basis === 'roll' && form.price_per_roll?.trim() ? Number(form.price_per_roll) : null,
     selling_price_per_kg_override: n(form.price_per_kg),
     pack_quantity: n(form.pack_quantity),
     sack_quantity: n(form.sack_quantity),
@@ -376,6 +377,12 @@ export function Desk({ meta, session, onSignOut }: Props) {
   /* The desktop's three header refusals, before anything is sent
    * (app.py:3236-3244). */
   function validateHeader(): boolean {
+    const moq = (form.moq_quantity ?? '').trim()
+    if (moq && (!Number.isFinite(Number(moq)) || Number(moq) <= 0 ||
+      !form.moq_unit || (form.moq_unit !== 'kg' && !Number.isInteger(Number(moq))))) {
+      window.alert('MOQ ต้องมากกว่า 0 และเลือกหน่วย ใบ / กก. / ม้วน หากเป็นใบหรือม้วนต้องเป็นจำนวนเต็ม')
+      return false
+    }
     if (!labels) return false
     if (!form.customer.trim()) {
       window.alert(labels.notes.need_customer)
@@ -407,6 +414,8 @@ export function Desk({ meta, session, onSignOut }: Props) {
       /* The QUESTION goes up, never the answer: the server works the figures
        * out again and stores what IT got (LAW K1). */
       const row = await saveQuotation({
+        moq_quantity: form.moq_quantity ?? '',
+        moq_unit: form.moq_quantity?.trim() ? (form.moq_unit ?? '') : '',
         calc: toRequest(form, meta),
         quote_date: form.quote_date,
         customer: form.customer,
@@ -447,6 +456,8 @@ export function Desk({ meta, session, onSignOut }: Props) {
     if (!validateHeader()) return
     try {
       const sheet = await printHtml({
+        moq_quantity: form.moq_quantity ?? '',
+        moq_unit: form.moq_quantity?.trim() ? (form.moq_unit ?? '') : '',
         calc: toRequest(form, meta),
         quote_date: form.quote_date,
         customer: form.customer,
@@ -840,6 +851,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
                     const product_key = e.target.value as ProductKey
                     set({
                       product_key,
+                      ...(product_key !== 'roll' && form.sale_basis === 'roll' ? { sale_basis: 'kg' as const } : {}),
                       // Plastic Sheet is one layer; bags contain two sides.
                       // Other product types keep the operator's current choice.
                       ...(['opaque', 'cover'].includes(product_key) ? { thickness_mode: 'side' as const } : {}),
@@ -1025,7 +1037,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
                 onChange={(e) =>
                   /* Changing the basis always turns the deduction back on -
                      the desktop's own rule (app.py:2744). */
-                  set({ sale_basis: e.target.value as 'kg' | 'piece', apply_deduction: true })
+                  set({ sale_basis: e.target.value as Form['sale_basis'], apply_deduction: e.target.value !== 'roll', ...(e.target.value === 'roll' ? { order_quantity: '', price_per_piece: '' } : {}) })
                 }
               >
                 {labels.choices.sale_basis.map((c) => (
@@ -1033,12 +1045,27 @@ export function Desk({ meta, session, onSignOut }: Props) {
                     {c.label}
                   </option>
                 ))}
+                {form.product_key === 'roll' && <option value="roll">ขายเป็นม้วน / Sell by roll</option>}
               </select>
               <p className="desk-primary">
-                {display.primary_line || labels.primary_hints[form.sale_basis]}
+                {display.primary_line || (form.sale_basis === 'roll' ? 'กรอกจำนวนม้วนและราคาขายต่อ กก.' : labels.primary_hints[form.sale_basis])}
               </p>
             </div>
 
+            <div className="desk-factors">
+              <Box label="จำนวนสั่งซื้อขั้นต่ำ / MOQ">
+                <input aria-label="จำนวนสั่งซื้อขั้นต่ำ / MOQ" type="number" min="0" step={form.moq_unit === 'kg' ? 'any' : '1'}
+                  placeholder="ไม่ระบุ" value={form.moq_quantity ?? ''}
+                  onChange={(e) => set({ moq_quantity: e.target.value })} />
+              </Box>
+              <Box label="หน่วย MOQ">
+                <select aria-label="หน่วย MOQ" value={form.moq_unit ?? ''} onChange={(e) => set({ moq_unit: e.target.value as NonNullable<Form['moq_unit']> })}>
+                  <option value="">เลือกหน่วย</option><option value="piece">ใบ / piece</option><option value="kg">กก. / kg</option>
+                  <option value="roll">ม้วน / roll</option>
+                </select>
+              </Box>
+            </div>
+            <p>MOQ เป็นเงื่อนไขขั้นต่ำ ไม่เปลี่ยนยอดสั่งหรือสูตรคำนวณราคา</p>
             <div className="desk-factors">
               <Box label={labels.fields.density}>
                 <input value={form.density} onChange={(e) => set({ density: e.target.value })} />
@@ -1058,8 +1085,8 @@ export function Desk({ meta, session, onSignOut }: Props) {
                   <label className="desk-tick">
                     <input
                       type="checkbox"
-                      checked={form.product_key === 'cover' ? form.sale_basis === 'piece' : form.apply_deduction}
-                      disabled={form.product_key === 'cover'}
+                      checked={form.sale_basis === 'roll' ? false : form.product_key === 'cover' ? form.sale_basis === 'piece' : form.apply_deduction}
+                      disabled={form.product_key === 'cover' || form.sale_basis === 'roll'}
                       onChange={(e) => set({ apply_deduction: e.target.checked })}
                     />
                     {labels.fields.apply_deduction}
@@ -1068,7 +1095,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
                   <input
                     className="desk-narrow"
                     value={form.product_key === 'cover' ? '10' : form.deduction}
-                    disabled={form.product_key === 'cover'}
+                    disabled={form.product_key === 'cover' || form.sale_basis === 'roll'}
                     onChange={(e) => set({ deduction: e.target.value })}
                   />
                 </div>
@@ -1079,11 +1106,19 @@ export function Desk({ meta, session, onSignOut }: Props) {
             <div className={sellByKg ? 'desk-prices is-kg' : 'desk-prices'}>
               {!sellByKg && (
                 <div className="desk-price is-calculated">
-                  <span>{labels.price_boxes.calculated}</span>
+                  <span>{form.sale_basis === 'roll' ? 'ราคาคำนวณต่อม้วน / Calculated price per roll' : labels.price_boxes.calculated}</span>
                   <output>{display.calculated_piece || '—'}</output>
                 </div>
               )}
-              {!sellByKg && (
+              {form.sale_basis === 'roll' && (
+                <label className="desk-price is-piece">
+                  <span>ราคาขายจริงต่อม้วน / Actual selling price per roll</span>
+                  <input aria-label="ราคาขายจริงต่อม้วน" inputMode="decimal" placeholder="เว้นว่างเพื่อใช้ราคาคำนวณ"
+                    value={form.price_per_roll ?? ''} onChange={(e) => set({ price_per_roll: e.target.value })} />
+                  <small>ยอดรวมใช้ราคาขายจริง หากเว้นว่างใช้ราคาคำนวณ แล้วกดคำนวณราคาอีกครั้ง</small>
+                </label>
+              )}
+              {form.sale_basis === 'piece' && (
                 <label className="desk-price is-piece">
                   <span>{labels.price_boxes.final_piece}</span>
                   <input
@@ -1105,7 +1140,14 @@ export function Desk({ meta, session, onSignOut }: Props) {
               </label>
             </div>
 
-            <div className="desk-subcard">
+            {form.sale_basis === 'roll' && <div className="desk-subcard">
+              <Box label="จำนวนม้วนที่สั่ง / Roll quantity">
+                <input aria-label="จำนวนม้วนที่สั่ง / Roll quantity" type="number" min="1" step="1" value={form.order_quantity} onChange={(e) => set({ order_quantity: e.target.value })} />
+              </Box>
+              <p>ใช้หน้ากว้างก่อนผ่าข้าง ความหนาต่อด้าน/ต่อคู่ตามที่เลือก ไม่รวมแกน และไม่หักจำนวน 10%</p>
+              <p>น้ำหนักรวม: {display.roll_total_kg || '—'} · ราคารวม: {display.roll_total_price || '—'}</p>
+            </div>}
+            {form.sale_basis !== 'roll' && <div className="desk-subcard">
               <h3 className="desk-subhead">ข้อมูลแพ็คเกจที่เสนอขาย / Quoted Packaging</h3>
               <div className="desk-grid desk-quotedpack-grid">
                 <Box label="จำนวนใบต่อห่อหรือพับ / Pcs per Pack or Fold">
@@ -1121,11 +1163,11 @@ export function Desk({ meta, session, onSignOut }: Props) {
                   <output className="desk-greenout">{display.sack_weight || 'กดคำนวณเพื่อแสดง กก. / Calculate to show kg'}</output>
                 </Box>
               </div>
-            </div>
+            </div>}
 
             <div className="desk-keyresults" aria-label="Weight and production quantity results">
               <div className="desk-keyresult">
-                <span>น้ำหนักต่อชิ้น / Weight per pc</span>
+                <span>{form.sale_basis === 'roll' ? 'น้ำหนักสุทธิต่อม้วน / kg per roll' : 'น้ำหนักต่อชิ้น / Weight per pc'}</span>
                 <strong>{display.grams || '—'}</strong>
               </div>
               <div className="desk-keyresult">
@@ -1134,7 +1176,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
               </div>
               <div className="desk-keyresult">
                 <span>
-                  หลังหักเผื่อผลิต {form.product_key === 'cover' ? (sellByKg ? '0' : '10') : form.apply_deduction ? form.deduction || '0' : '0'}% /
+                  หลังหักเผื่อผลิต {form.sale_basis === 'roll' ? '0' : form.product_key === 'cover' ? (sellByKg ? '0' : '10') : form.apply_deduction ? form.deduction || '0' : '0'}% /
                   After production deduction
                 </span>
                 <strong>{display.adjusted_items ? `${display.adjusted_items}/กก.` : '—'}</strong>
@@ -1375,7 +1417,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
                     onChange={(e) => set({ deduction: e.target.value })}
                   />
                 </Box>
-                <Box label={labels.fields.order_qty}>
+                <Box label={form.sale_basis === 'roll' ? 'จำนวนม้วนที่สั่ง / Roll quantity' : labels.fields.order_qty}>
                   <input
                     value={form.order_quantity}
                     onChange={(e) => set({ order_quantity: e.target.value })}
