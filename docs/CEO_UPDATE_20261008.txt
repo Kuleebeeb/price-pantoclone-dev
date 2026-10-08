@@ -1,7 +1,8 @@
 PANTONGONE - KẾ HOẠCH CẬP NHẬT BẢN CEO BÀN GIAO NGÀY 08/10/2026
 Ngày lập: 08/10/2026 (Asia/Saigon)
-Trạng thái: Đã ghép chức năng và kiểm thử kỹ thuật; đang chuẩn bị commit/triển khai.
-Kết quả thực hiện và giới hạn kiểm thử ở mục 8. Mục 1-7 lưu kế hoạch đối chiếu ban đầu.
+Trạng thái: ĐÃ TRIỂN KHAI price.pantongone.com, bản chức năng 31f9415.
+Kết quả/giới hạn ở mục 8, bằng chứng production ở mục 9.
+Mục 1-7 lưu kế hoạch đối chiếu ban đầu, không phải trạng thái việc còn chờ.
 
 1. KẾT LUẬN CHO CEO
 
@@ -300,3 +301,31 @@ D:\tmp\pantong-ceo-20261008-qa\browser\,
 D:\tmp\pantong-ceo-20261008-qa\frontend-print\.
 Backup production dùng diễn tập: production-before.dump, 919.841 bytes,
 SHA-256 8f55598b167a1e812587fc29bee4f7e511f9f0482b83b5e563f709b7d182f961.
+
+9. PHÁT HÀNH PRODUCTION ĐÃ XÁC MINH
+
+- Commit chức năng: 31f9415b897db0ccc54e3d6ad5df733581a1b8bf, đã fast-forward
+  và push origin/main. Commit tài liệu tiếp theo chỉ ghi kết quả triển khai.
+- Host: pacos-prod, /srv/thaiplastic; domain https://price.pantongone.com/.
+- DEPLOYED_REV: 31f9415b897db0ccc54e3d6ad5df733581a1b8bf 20261008-191146.
+- Image đã kiểm tra đang chạy và có OCI revision khớp source SHA:
+  sha256:4ce6833105783133b26354d25bf578634598444342015f0b3b72f95ed7f3f8fb.
+- API và PostgreSQL healthy. API public hiển thị src-2026-10-08 CEO handover.
+  Trang đăng nhập qua domain render được, không lỗi JavaScript; API báo giá
+  chưa đăng nhập trả 401. Không thao tác bằng tài khoản CEO trên production.
+- Sáu asset JS/CSS/logo tải từ domain có SHA-256 khớp bản build đã thử.
+  Bundle chức năng: Desk-DkoGnYQ1.js; entry: index-D_5kDq0B.js.
+- Đối chiếu trực tiếp trước/sau deployment: 13 bảng/18.297 dòng, toàn bộ cột
+  cũ giữ nguyên hash. Cấu hình auth, bridge, DB và múi giờ giữ nguyên fingerprint.
+  Chỉ thêm migration 0012_ceo_october_documents.sql; không nhập dữ liệu CEO.
+- /api/version và bộ cài vẫn là PantongOne_v1.7.1.exe; đợt này là cập nhật web.
+
+Backup trên host:
+- /srv/thaiplastic/backups/pricing-20261008-191146.sql.gz (887.279 bytes),
+  đã gzip -t thành công trước build.
+- /srv/thaiplastic/backups/src-before-20261008-191144.tgz.
+- Image cũ: thaiplastic-api:before-20261008-191146.
+
+Bằng chứng thêm ngoài Git trong D:\tmp\pantong-ceo-20261008-qa:
+production-deploy.log, production-postdeploy.json, production-public.json,
+production-login.png, browser-container\.
