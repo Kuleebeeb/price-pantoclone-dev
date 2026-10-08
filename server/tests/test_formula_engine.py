@@ -672,6 +672,7 @@ print("Every shipped default weight formula, run by calculate() for its product"
 #   gusset: (45 + 12.5) * 61 * 2 * (0.04/10) * 0.92          = 25.8152 g
 #   roll:   45 * 300 * 100 * 2 * (0.04/10) * 0.92            = 9936.0 g
 #   opaque: 45 * 60 * (0.04/10) * 0.92   (one layer, no * 2) = 9.936 g
+#   sleeve: 45 * 60 * 2 * (0.04/10) * 0.92 (no bottom allowance) = 19.872 g
 #   cover:  roof 46*61 = 2806 cm2 -> 0.2806 m2 * 120         = 33.672 g
 #           mesh ((45+60)*2+4) * 151 = 32314 cm2 -> 3.2314 m2 * 80 = 258.512 g
 #                                                              = 292.184 g
@@ -680,6 +681,7 @@ for _key, _want_grams in (
     ("gusset", 25.8152),
     ("roll", 9936.0),
     ("opaque", 9.936),
+    ("sleeve", 19.872),
     ("cover", 292.184),
 ):
     close(
@@ -688,12 +690,12 @@ for _key, _want_grams in (
         _want_grams,
         1e-9,
     )
-# A sixth product shipped without its own default formula would fall back to
+# A product shipped without its own default formula would fall back to
 # somebody else's geometry, so the set of keys is pinned by name, not counted.
 check(
     "calculate_defaultWeightFormulas_oneNamedFormulaPerProduct",
     tuple(sorted(DEFAULT_WEIGHT_FORMULAS)),
-    ("cover", "flat", "gusset", "opaque", "roll"),
+    ("cover", "flat", "gusset", "opaque", "roll", "sleeve"),
 )
 
 # ---------------------------------- validate_formula: a helper nobody calls

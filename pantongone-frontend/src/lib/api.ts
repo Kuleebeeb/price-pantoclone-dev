@@ -382,14 +382,15 @@ export const listCoas = () => request<{ rows: CoaRecord[] }>('/api/coa')
 export const saveCoa = (body: CoaSave) => request<{ row: CoaRecord }>('/api/coa', { method: 'POST', body: JSON.stringify(body) })
 export const coaPrintHtml = (id: number) => request<{ html: string }>(`/api/coa/${id}/print`)
 
-export type SampleSource = CoaSource & { product_key:string; gusset_mm:number; tolerance_width_mm:number; tolerance_length_mm:number; tolerance_thickness_mm:number;
+export type SampleSource = CoaSource & { quote_version?:number; product_key:string; gusset_mm:number; tolerance_width_mm:number; tolerance_length_mm:number; tolerance_thickness_mm:number;
   tolerance_gusset_left_mm?:number; tolerance_gusset_right_mm?:number;
   width_original?:{value:number;unit:string}; length_original?:{value:number;unit:string}; gusset_original?:{value:number;unit:string}; thickness_original?:{value:number;unit:string} }
 export type SampleMeasurement = { width:number|null; length:number|null; thickness:number|null; gusset_left:number|null; gusset_right:number|null }
-export type SampleInspectionSave = { id?:number; quote_ref:string; inspection_date:string; tolerance_width_mm:number; tolerance_length_mm:number;
+export type LengthDatum = 'opening_to_bottom' | 'opening_to_seal' | null
+export type SampleInspectionSave = { id?:number; expected_revision?:number; expected_quote_version?:number; request_id?:string; length_datum:LengthDatum; quote_ref:string; inspection_date:string; tolerance_width_mm:number; tolerance_length_mm:number;
   tolerance_thickness_mm:number; tolerance_gusset_left_mm:number; tolerance_gusset_right_mm:number; measurements:SampleMeasurement[];
   remarks:string; checked_by:string; approved_by:string }
-export type SampleInspectionRecord = Record<string, unknown> & { id:number; report_no:string; quote_ref:string; customer:string; product:string; overall_result:string; results_json:SampleMeasurement[] }
+export type SampleInspectionRecord = Omit<SampleInspectionSave, 'measurements'> & { id:number; report_no:string; customer:string; product:string; overall_result:string; results_json:SampleMeasurement[]; source_snapshot:SampleSource; revision:number }
 export const sampleSources = (q='') => request<{rows:SampleSource[]}>(`/api/sample-inspections/sources${tail({q})}`)
 export const listSampleInspections = () => request<{rows:SampleInspectionRecord[]}>('/api/sample-inspections')
 export const saveSampleInspection = (body:SampleInspectionSave) => request<{row:SampleInspectionRecord}>('/api/sample-inspections',{method:'POST',body:JSON.stringify(body)})
@@ -517,7 +518,7 @@ export const relatedTable = (params: {
 
 /** Everything the Edit button pours back into the form, as box-ready strings. */
 export const quotationForm = (quoteRef: string) =>
-  request<{ quote_ref: string; form: Record<string, unknown>; ref_text: string; status: string }>(
+  request<{ quote_ref: string; version: number; form: Record<string, unknown>; ref_text: string; status: string }>(
     `/api/quotations/${encodeURIComponent(quoteRef)}/form`,
   )
 
@@ -759,8 +760,11 @@ export const saveQuotation = (body: {
   /** Set when the form was loaded from a saved record: the desktop's
    *  edit-as-revision link, never an overwrite. */
   revised_from_ref?: string
+  update_ref?: string
+  expected_version?: number
+  request_id?: string
 }) =>
-  request<{ quote_ref: string; id: number; created_at: string }>('/api/quotations', {
+  request<{ quote_ref: string; id: number; created_at: string; version: number }>('/api/quotations', {
     method: 'POST',
     body: JSON.stringify(body),
   })

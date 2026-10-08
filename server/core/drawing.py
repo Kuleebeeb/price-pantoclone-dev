@@ -12,7 +12,9 @@ from __future__ import annotations
 import html
 import math
 from dataclasses import dataclass, field as dc_field
+from datetime import datetime
 from typing import Callable
+from zoneinfo import ZoneInfo
 
 # --- โทนสี (เปลี่ยนที่นี่ที่เดียว มีผลกับทุกประเภทสินค้า) ------------------
 INK = "#183B5B"
@@ -91,6 +93,7 @@ class DrawingSpec:
     tol_thickness: float = 0.005
     length_datum: str = ""          # opening_to_seal | opening_to_bottom
     display_unit: str = "mm"        # mm | inch
+    dimension_units: dict[str, str] = dc_field(default_factory=dict)
     holes_count: int = 0
     holes_dia: str = ""
     label_w: float = 0.0
@@ -317,6 +320,13 @@ def _product_cover(pen: Pen, area, spec: DrawingSpec):
     pen.line(fl + dx, fb + dy, fr + dx, fb + dy, 0.6, MID, [3, 3])
     pen.line(fl + dx, fb + dy, fl + dx, ft + dy, 0.6, MID, [3, 3])
 
+    ox, oy = fr + dx * 0.5, fb + dy * 0.5
+    tx, ty = ox + 30, fb - 24
+    pen.line(ox, oy, tx, ty + 10, 0.8, INK)
+    pen.arrow_head(ox, oy, tx, ty + 10)
+    pen.txt(tx, ty, "ปากถุงเปิดด้านล่าง", 8.5, True, "center", INK)
+    pen.txt(tx, ty - 12, "OPEN BOTTOM", 8.5, True, "center", INK)
+
     if spec.holes_count:
         span = fr - fl
         for i in range(spec.holes_count):
@@ -336,7 +346,7 @@ def _product_cover(pen: Pen, area, spec: DrawingSpec):
     return [
         ("width", (fl, fb - 28), (fr, fb - 28), (fl, fb), (fr, fb)),
         ("height", (fr + dx + 28, fb + dy), (fr + dx + 28, ft + dy), (fr + dx, fb + dy), (fr + dx, ft + dy)),
-        ("length", (fl - 30, fb + 6), (fl - 30 + dx, fb + 6 + dy), None, None),
+        ("length", (fl - 24, ft + 24), (fl + dx - 24, ft + dy + 24), (fl, ft), (fl + dx, ft + dy)),
     ]
 
 
@@ -372,15 +382,24 @@ def build_notes(spec: DrawingSpec) -> list[str]:
             f"Thickness: {spec.thickness_mm:.{dec}f} mm per side; "
             f"tolerance: +/-{spec.tol_thickness:g} mm."
         )
-    notes.append(
-        f"Overall dimension tolerance: {spec.tol_dim_hi:+g} / {spec.tol_dim_lo:+g} mm."
-    )
+    if spec.dimension_units:
+        table_units = list(dict.fromkeys("mm" if unit == "inch" else unit
+                                        for unit in spec.dimension_units.values()))
+        tolerances = []
+        for unit in table_units:
+            factor = {"mm": 1, "cm": 10, "m": 1000}[unit]
+            tolerances.append(f"{spec.tol_dim_hi / factor:+.2f} / {spec.tol_dim_lo / factor:+.2f} {unit}")
+        notes.append("Dimension tolerance: " + "; ".join(tolerances) + ".")
+        if "inch" in spec.dimension_units.values():
+            notes.append("Inch dimensions: inspection table in mm (1 inch = 25.40 mm).")
+    else:
+        notes.append(f"Overall dimension tolerance: {spec.tol_dim_hi:+g} / {spec.tol_dim_lo:+g} mm.")
     notes.append(f"Material: {spec.material}. Unit: {spec.display_unit}. Scale: NTS.")
     return notes + [n for n in spec.extra_notes if n.strip()]
 
 
 def build_dim_rows(spec: DrawingSpec) -> list[DimRow]:
-    unit = spec.display_unit
+    unit = "inch" if spec.display_unit == "inch" else "mm"
     to_unit = (lambda v: v / MM_PER_INCH) if unit == "inch" else (lambda v: v)
     dec = 2 if unit == "inch" else 0
     lo, hi = spec.tol_dim_lo, spec.tol_dim_hi
@@ -402,6 +421,20 @@ def build_dim_rows(spec: DrawingSpec) -> list[DimRow]:
         # เพราะหน้างานวัดด้วยไมโครมิเตอร์หน่วยมิลลิเมตร
         rows.append(DimRow("THICKNESS", t, t - spec.tol_thickness, t + spec.tol_thickness,
                            "mm/side", _thick_dec(t), True))
+    kinds = {"WIDTH": "width", spec.length_label(): "length", "HEIGHT": "height", "GUSSET": "gusset"}
+    for row in rows:
+        target = spec.dimension_units.get(kinds.get(row.item, ""))
+        if target:
+            target = "mm" if target == "inch" else target
+            old_factor = MM_PER_INCH if unit == "inch" else 1
+            factor = {"mm": 1, "cm": 10, "m": 1000}[target]
+            row.nominal = row.nominal * old_factor / factor
+            if row.lo is not None:
+                row.lo = row.lo * old_factor / factor
+            if row.hi is not None:
+                row.hi = row.hi * old_factor / factor
+            row.unit = target
+            row.decimals = 2
     return rows
 
 
@@ -410,6 +443,12 @@ def dim_label(spec: DrawingSpec, kind: str) -> str:
     if not value:
         return ""
     name = spec.length_label() if kind == "length" else kind.upper()
+    if kind in spec.dimension_units:
+        unit = spec.dimension_units[kind]
+        if unit == "inch":
+            return f"{name} {value / MM_PER_INCH:.2f} inch ({value:.2f} mm)"
+        factor = {"mm": 1, "cm": 10, "m": 1000}[unit]
+        return f"{name} {value / factor:.2f} {unit}"
     if spec.display_unit == "inch":
         return f"{name} {value / MM_PER_INCH:g} in ({value:.1f} mm)"
     return f"{name} {value:,.0f} mm"
@@ -664,6 +703,7 @@ def render_html(spec: DrawingSpec) -> str:
     """หน้าเว็บสำหรับดูตัวอย่างและสั่งพิมพ์ A4 แนวนอน"""
     svg = render_svg(spec)
     title = _esc(f"{spec.doc_no} — {spec.title}")
+    stamp = datetime.now(ZoneInfo("Asia/Bangkok")).strftime("%d/%m/%Y %H:%M:%S")
     return f"""<!DOCTYPE html>
 <html lang="th">
 <head>
@@ -676,8 +716,11 @@ def render_html(spec: DrawingSpec) -> str:
   .bar button {{ float: right; font: inherit; padding: 6px 16px; margin-left: 8px; cursor: pointer; }}
   .sheet {{ background: #fff; margin: 16px auto; max-width: 1180px;
             box-shadow: 0 2px 12px rgba(0,0,0,.18); }}
+  .print-footer {{ display: flex; justify-content: space-between; font-size: 8px;
+                   border-top: 1px solid #999; padding: 2mm 6mm; }}
   @media print {{ .bar {{ display: none; }}
                   .sheet {{ margin: 0; max-width: none; box-shadow: none; }}
+                  .sheet > svg {{ display: block; width: 100%; max-height: 190mm; }}
                   body {{ background: #fff; }} }}
 </style>
 </head>
@@ -686,6 +729,6 @@ def render_html(spec: DrawingSpec) -> str:
   <button onclick="history.back(); setTimeout(function(){{ if(history.length <= 1) window.close(); }}, 100)">ย้อนกลับ / Back</button>
   <button onclick="window.print()">พิมพ์ / Print</button>
 </div>
-<div class="sheet">{svg}</div>
+<div class="sheet">{svg}<div class="print-footer"><span>PANTONG THAI PACK CO., LTD. • {_esc(spec.doc_no)}</span><span>Printed: {stamp} • Page 1 of 1</span></div></div>
 </body>
 </html>"""

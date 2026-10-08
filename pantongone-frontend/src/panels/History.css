@@ -47,14 +47,25 @@
   table-layout: fixed;
 }
 
-.hx-table td {
+/* Outrank Desk.css and the folder view regardless of stylesheet load order. */
+.desk-table.hx-table th,
+.desk-table.hx-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
   overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: clip;
+  line-height: 1.45;
+  vertical-align: top;
+  padding: 10px 8px;
 }
 
 .hx-table tbody tr {
   cursor: default;
 }
+
+.hx-input-details { margin-top: 8px; }
+.hx-input-details summary { cursor: pointer; font-weight: 600; }
+.hx-input-details > div { white-space: pre-wrap; overflow-wrap: anywhere; padding-top: 8px; }
 
 .hx-table tbody tr.is-selected td {
   background: var(--blue);

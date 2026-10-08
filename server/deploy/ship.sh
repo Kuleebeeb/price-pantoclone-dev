@@ -16,20 +16,17 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 PKG="/tmp/thaiplastic-$STAMP.tgz"
 
 cd "$ROOT"
-if [[ -n "$(git status --porcelain -- server pantongone-frontend)" ]]; then
+if [[ -n "$(git status --porcelain -- server pantongone-frontend .dockerignore)" ]]; then
     echo "HONG: server/ hoac pantongone-frontend/ con thay doi chua commit - commit truoc roi ship" >&2
     git status --short -- server pantongone-frontend >&2
     exit 1
 fi
-REV="$(git rev-parse --short HEAD)"
+REV="$(git rev-parse HEAD)"
 
 echo "==> 1/3  dong goi (khong .env, node_modules, dist, releases, web, .venv, log)"
-tar czf "$PKG" \
-    --exclude='.env' --exclude='node_modules' --exclude='dist' --exclude='releases' \
-    --exclude='web' --exclude='__pycache__' --exclude='.venv' --exclude='*.log' \
-    --exclude='tsconfig.tsbuildinfo' \
-    server pantongone-frontend
-if tar tzf "$PKG" | grep -qE '(^|/)\.env$'; then
+git archive --format=tar.gz --output="$PKG" HEAD server pantongone-frontend .dockerignore
+CONTENTS="$(tar tzf "$PKG")"
+if printf '%s\n' "$CONTENTS" | grep -vE '(^|/)\.env\.example$' | grep -E '(^|/)(\.env($|\.)|node_modules/|\.venv/|[^/]*\.sqlite3?$)' >/dev/null; then
     echo "HONG: goi tar co .env - khong ship" >&2
     exit 1
 fi
@@ -50,6 +47,6 @@ tar czf 'backups/src-before-$STAMP.tgz' --exclude='.env' --exclude='node_modules
     --exclude='releases' --exclude='web' --exclude='__pycache__' --exclude='.venv' --exclude='*.log' \
     server pantongone-frontend
 tar xzf '$PKG' -C '$REMOTE'
-printf '%s %s\n' '$REV' '$STAMP' > server/DEPLOYED_REV
+printf '%s %s\n' '$REV' '$STAMP' > server/CANDIDATE_REV
 rm -f '$PKG'
 cd server && bash deploy/deploy.sh"

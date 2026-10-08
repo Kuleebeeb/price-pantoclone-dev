@@ -529,13 +529,7 @@ export function Drawing({ labels, form, meta, customers, initialQuoteRef = '' }:
             </select>
           </Box>
           <Box label={words.fields.display_unit}>
-            <select
-              value={sheet.display_unit}
-              onChange={(e) => set({ display_unit: e.target.value as 'mm' | 'inch' })}
-            >
-              <option value="mm">mm</option>
-              <option value="inch">inch</option>
-            </select>
+            <div>ตามหน่วยที่กรอก — กว้าง {sheet.width_unit} / ยาว {sheet.length_unit}</div>
           </Box>
           {asksDatum && <Box label="รูปสินค้า / มุมมองสำหรับดูและพิมพ์">
             <select value={drawingView} onChange={(e) => setDrawingView(e.target.value as '2d' | '3d' | 'both')}>

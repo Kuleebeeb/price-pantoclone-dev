@@ -131,10 +131,10 @@ if ssrc:
 s, r = call("POST", "/api/sample-inspections", {
     "quote_ref": QT, "inspection_date": "2026-08-30", "tolerance_width_mm": 10, "tolerance_length_mm": 10,
     "tolerance_thickness_mm": 0.01, "tolerance_gusset_left_mm": 0, "tolerance_gusset_right_mm": 0,
-    "measurements": [{"width": 101.6, "length": 304.8, "thickness": 0.16}], "remarks": "", "checked_by": "QC", "approved_by": "CEO"})
+    "measurements": [{"width": 101.6, "length": 304.8, "thickness": 0.16}] * 3, "remarks": "", "checked_by": "QC", "approved_by": "CEO"})
 sir = r.get("row", {}) if isinstance(r, dict) else {}
-check("sample inspection saved as SIR-YYYYMMDD-NNNN with PASS",
-      s == 200 and str(sir.get("report_no", "")).startswith("SIR-") and sir.get("overall_result") == "PASS",
+check("sample inspection saved as SI-YYYYMMDD-NNNN with PASS",
+       s == 200 and str(sir.get("report_no", "")).startswith("SI-") and sir.get("overall_result") == "PASS",
       (s, sir.get("report_no"), sir.get("overall_result"), r if s != 200 else ""))
 s, r = call("GET", f"/api/sample-inspections/{sir.get('id')}/print")
 html = r.get("html", "") if isinstance(r, dict) else ""
@@ -142,13 +142,13 @@ check("sample print: Printed + Page + SAMPLE INSPECTION REPORT",
       s == 200 and "Printed:" in html and "Page 1 of 1" in html and "SAMPLE INSPECTION REPORT" in html, s)
 s, r = call("POST", "/api/sample-inspections", {
     "quote_ref": QT, "inspection_date": "2026-08-30", "tolerance_width_mm": 10, "tolerance_length_mm": 10,
-    "tolerance_thickness_mm": 0.01, "measurements": [{"width": 130, "length": 304.8, "thickness": 0.16}], "checked_by": "QC"})
+    "tolerance_thickness_mm": 0.01, "measurements": [{"width": 130, "length": 304.8, "thickness": 0.16}] * 3, "checked_by": "QC"})
 failed_id = r.get("row", {}).get("id") if isinstance(r, dict) else None
 check("out-of-tolerance width -> FAIL", s == 200 and r.get("row", {}).get("overall_result") == "FAIL", (s, r.get("row", {}).get("overall_result")))
 # 0.17 - 0.16 is 0.010000000000000009 in floating point; the micrometer says it is on the limit
 s, r = call("POST", "/api/sample-inspections", {
     "quote_ref": QT, "inspection_date": "2026-08-30", "tolerance_width_mm": 10, "tolerance_length_mm": 10,
-    "tolerance_thickness_mm": 0.01, "measurements": [{"width": 111.6, "length": 294.8, "thickness": 0.17}], "checked_by": "QC"})
+    "tolerance_thickness_mm": 0.01, "measurements": [{"width": 111.6, "length": 294.8, "thickness": 0.17}] * 3, "checked_by": "QC"})
 edge_id = r.get("row", {}).get("id") if isinstance(r, dict) else None
 check("sample exactly on every limit -> PASS (no floating-point FAIL)",
       s == 200 and r.get("row", {}).get("overall_result") == "PASS", (s, r.get("row", {}).get("overall_result")))
@@ -157,7 +157,7 @@ for rid in (sir.get("id"), failed_id, edge_id):
     check(f"sample inspection {rid} delete", s == 200, (s, r))
 
 # 4. Planning: prefill without prices, equal-count compare, cutting work order with the print stamp
-s, r = call("GET", "/api/planning/sources")
+s, r = call("GET", "/api/planning/sources?q=" + urllib.parse.quote(QT, safe=""))
 check("planning sources list", s == 200 and any(QT in json.dumps(x, ensure_ascii=False) for x in r.get("rows", [])), s)
 s, r = call("GET", "/api/planning/source?selected=" + urllib.parse.quote(QT))
 check("planning source prefill", s == 200, (s, str(r)[:200]))

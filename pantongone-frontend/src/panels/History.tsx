@@ -16,6 +16,13 @@ import { CALCULATE, DELETE, DRAWING, SAMPLE } from '@/lib/permissions'
 import { HistoryTree } from './HistoryTree'
 import './History.css'
 
+const readableWidths: Record<string, number> = {
+  ref: 280, date: 110, customer_code: 105, customer: 240,
+  sale_unit: 100, item: 360, product: 150, size: 380,
+  thickness: 135, grams: 95, price_basis: 110, calc_price: 110,
+  price_kg: 100, price: 100, pack: 100, moq: 100,
+}
+
 /* THE BOOK, 17,391 QUOTATIONS DEEP - app.py _build_history (2425-2630).
  *
  * FILTERS RUN ON ENTER OR THE SEARCH BUTTON, NOT PER KEYSTROKE: that is how
@@ -405,14 +412,14 @@ export function History({ labels, products, customers, onEdit, onCopy, onCreateS
           <colgroup>
             <col style={{ width: '44px' }} />
             {labels.history_columns.map((column) => (
-              <col key={column.key} style={{ width: column.width + 'px' }} />
+              <col key={column.key} style={{ width: (readableWidths[column.key] ?? column.width) + 'px' }} />
             ))}
           </colgroup>
           <thead>
             <tr>
               <th className="hx-pick">{bridge.check_col}</th>
               {labels.history_columns.map((column) => (
-                <th key={column.key}>{column.label}</th>
+                <th key={column.key}>{column.key === 'product' ? 'รหัสสินค้า / Part No.' : column.label}</th>
               ))}
             </tr>
           </thead>
@@ -435,7 +442,17 @@ export function History({ labels, products, customers, onEdit, onCopy, onCreateS
                   />
                 </td>
                 {labels.history_columns.map((column) => (
-                  <td key={column.key}>{displayCell(column.key, row[column.key])}</td>
+                  <td key={column.key}>
+                    {column.key.startsWith('roll_') && row.sale_unit !== 'ม้วน / roll'
+                      ? 'ไม่ใช้กับรายการนี้'
+                      : displayCell(column.key, row[column.key]) || 'ยังไม่ระบุ'}
+                    {column.key === 'size' && row._input_details && (
+                      <details className="hx-input-details" onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+                        <summary>ดูข้อมูลจากหน้าเสนอราคาทั้งหมด</summary>
+                        <div>{row._input_details}</div>
+                      </details>
+                    )}
+                  </td>
                 ))}
               </tr>
             ))}
@@ -498,7 +515,7 @@ export function History({ labels, products, customers, onEdit, onCopy, onCreateS
         <span className="hx-count">{countText}</span>
       </div>
 
-      <p className="desk-mutednote">{words.edit_note}</p>
+      <p className="desk-mutednote">ดึงข้อมูลเก่ามาแก้ไข: เลือกรายการ แล้วบันทึกแก้ไขด้วยเลขเดิม ไม่เพิ่มรายการซ้ำ ข้อมูลก่อนแก้เก็บไว้ตรวจย้อนหลัง หรือเลือกออกฉบับแก้ไขใหม่ในหน้าป้อนข้อมูล</p>
       {deleting && <dialog open className="hx-dialog" aria-label="เหตุผลก่อนลบ">
         <h3>ย้ายรายการไปถังขยะ</h3>
         <p>{deleting.ref} — {deleting.customer} — {deleting.item}</p>
@@ -543,13 +560,13 @@ export function History({ labels, products, customers, onEdit, onCopy, onCreateS
             <table className="desk-table hx-table">
               <colgroup>
                 {labels.related_columns.map((column) => (
-                  <col key={column.key} style={{ width: column.width + 'px' }} />
+                  <col key={column.key} style={{ width: (readableWidths[column.key] ?? column.width) + 'px' }} />
                 ))}
               </colgroup>
               <thead>
                 <tr>
                   {labels.related_columns.map((column) => (
-                    <th key={column.key}>{column.label}</th>
+                    <th key={column.key}>{column.key === 'product' ? 'รหัสสินค้า / Part No.' : column.label}</th>
                   ))}
                 </tr>
               </thead>
@@ -557,7 +574,17 @@ export function History({ labels, products, customers, onEdit, onCopy, onCreateS
                 {related.rows.map((row) => (
                   <tr key={row.ref}>
                     {labels.related_columns.map((column) => (
-                      <td key={column.key}>{displayCell(column.key, row[column.key])}</td>
+                      <td key={column.key}>
+                    {column.key.startsWith('roll_') && row.sale_unit !== 'ม้วน / roll'
+                      ? 'ไม่ใช้กับรายการนี้'
+                      : displayCell(column.key, row[column.key]) || 'ยังไม่ระบุ'}
+                    {column.key === 'size' && row._input_details && (
+                      <details className="hx-input-details" onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}>
+                        <summary>ดูข้อมูลจากหน้าเสนอราคาทั้งหมด</summary>
+                        <div>{row._input_details}</div>
+                      </details>
+                    )}
+                  </td>
                     ))}
                   </tr>
                 ))}

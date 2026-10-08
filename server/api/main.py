@@ -10,6 +10,7 @@ between this and the .exe would be a bug in THIS file, never in the formulas.
 from __future__ import annotations
 
 import math
+import json
 import sys
 from datetime import date
 from pathlib import Path
@@ -64,7 +65,7 @@ import store  # noqa: E402
 # len "1.7.1 (Phase 1) - Planning screen" (app.py:51, mtime 18:12) - MOI HON ban
 # .exe v1.5.1 (17:31). CEO sua nguon nhieu lan mot ngay: truoc khi tin ban clone,
 # so mtime va APP_VERSION cua Z:\1\app.py voi chuoi duoi day.
-APP_VERSION = "src-2026-10-02 CEO handover: MOQ, sell by roll, trash (ui == app.py v1.7.1)"
+APP_VERSION = "src-2026-10-08 CEO handover: quotation edits, drawing units, inspection snapshots"
 app = FastAPI(title="Plastic Pricing", version=APP_VERSION, docs_url="/api/docs")
 
 
@@ -186,35 +187,7 @@ def api_drawing(req: DrawingRequest) -> dict[str, Any]:
     are two drawings, and the customer signs one of them.
     """
     try:
-        spec = DrawingSpec(
-            doc_no=req.doc_no.strip() or "-",
-            customer=req.customer.strip(),
-            title=req.title.strip(),
-            shape=PRODUCT_TO_SHAPE[req.product_key],
-            revision=req.revision.strip() or "A",
-            date=req.date.strip(),
-            part_no=req.part_no.strip() or "-",
-            customer_code=req.customer_code.strip(),
-            material=req.material.strip() or "POLYETHYLENE",
-            color=req.color.strip() or "-",
-            printing=req.printing.strip() or "-",
-            width_mm=_to_mm(req.width),
-            length_mm=_to_mm(req.length),
-            height_mm=_to_mm(req.height),
-            gusset_mm=_to_mm(req.gusset),
-            thickness_mm=thickness_to_mm(req.thickness.value, req.thickness.unit),
-            tol_dim_lo=req.tol_dim_lo,
-            tol_dim_hi=req.tol_dim_hi,
-            tol_thickness=req.tol_thickness,
-            length_datum=req.length_datum,
-            display_unit=req.display_unit,
-            drawing_view=req.drawing_view,
-            holes_count=req.holes_count,
-            holes_dia=req.holes_dia.strip(),
-            label_w=req.label_w,
-            label_h=req.label_h,
-            extra_notes=[line for line in req.extra_notes if line.strip()],
-        )
+        spec = _drawing_spec(req)
         return {"svg": render_svg(spec)}
     except (DrawingError, ValueError, KeyError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -246,6 +219,9 @@ class SaveRequest(BaseModel):
     revised_from_ref: str = ""
     moq_quantity: str = ""
     moq_unit: str = ""
+    update_ref: str = ""
+    expected_version: int | None = Field(default=None, ge=1)
+    request_id: str = Field(default="", max_length=100)
 
 
 # MOQ (CEO 02-10-2026): the smallest order the price holds for. A condition
@@ -315,23 +291,27 @@ class CoaSaveRequest(BaseModel):
 
 
 class SampleMeasurement(BaseModel):
-    width: float | None = None
-    length: float | None = None
-    thickness: float | None = None
-    gusset_left: float | None = None
-    gusset_right: float | None = None
+    width: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    length: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    thickness: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    gusset_left: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    gusset_right: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 
 class SampleInspectionSaveRequest(BaseModel):
-    id: int | None = None
+    id: int | None = Field(default=None, ge=1)
     quote_ref: str
     inspection_date: date
-    tolerance_width_mm: float
-    tolerance_length_mm: float
-    tolerance_thickness_mm: float
-    tolerance_gusset_left_mm: float = 0
-    tolerance_gusset_right_mm: float = 0
-    measurements: list[SampleMeasurement] = Field(default_factory=list)
+    tolerance_width_mm: float = Field(ge=0, allow_inf_nan=False)
+    tolerance_length_mm: float = Field(ge=0, allow_inf_nan=False)
+    tolerance_thickness_mm: float = Field(ge=0, allow_inf_nan=False)
+    tolerance_gusset_left_mm: float = Field(default=0, ge=0, allow_inf_nan=False)
+    tolerance_gusset_right_mm: float = Field(default=0, ge=0, allow_inf_nan=False)
+    measurements: list[SampleMeasurement] = Field(min_length=3, max_length=3)
+    length_datum: Literal["opening_to_bottom", "opening_to_seal"] | None = None
+    expected_revision: int | None = Field(default=None, ge=1)
+    expected_quote_version: int | None = Field(default=None, ge=1)
+    request_id: str = Field(default="", max_length=100)
     remarks: str = ""
     checked_by: str = ""
     approved_by: str = ""
@@ -921,11 +901,13 @@ def api_calculate(req: CalcRequest) -> dict[str, Any]:
 
 
 @app.post("/api/quotations")
-def api_save(req: SaveRequest) -> dict[str, Any]:
+def api_save(req: SaveRequest, request: Request) -> dict[str, Any]:
     if not req.customer.strip():
         raise HTTPException(status_code=400, detail="กรุณากรอกชื่อลูกค้า / Customer is required")
     if not req.customer_code.strip():
         raise HTTPException(status_code=400, detail="กรุณากรอกรหัสลูกค้า / Customer code is required")
+    if req.update_ref.strip() and req.revised_from_ref.strip():
+        raise HTTPException(status_code=400, detail="เลือกแก้ไขเดิมหรือออก revision / Choose update or revision, not both")
     moq_quantity, moq_unit = moq_fields(req.moq_quantity, req.moq_unit)
     try:
         out = run_calculation(req.calc)
@@ -941,8 +923,7 @@ def api_save(req: SaveRequest) -> dict[str, Any]:
     inputs["price_basis"] = out["price_basis"]
     inputs["human_summary"] = out["human_summary"]
 
-    row = db.save_quotation(
-        {
+    record = {
             "quote_date": req.quote_date,
             "customer": req.customer.strip(),
             "customer_code": req.customer_code.strip(),
@@ -967,8 +948,16 @@ def api_save(req: SaveRequest) -> dict[str, Any]:
             "sack_quantity": calc.sack_quantity,
             "sack_weight_kg": res.sack_weight_kg,
         }
-    )
-    return {"quote_ref": row["quote_ref"], "id": row["id"], "created_at": row["created_at"]}
+    actor_id, actor_name = _account_name(request)
+    try:
+        return db.save_quotation(record, update_ref=req.update_ref.strip(), expected_version=req.expected_version,
+            request_id=req.request_id, fingerprint=db.request_fingerprint(req.model_dump(mode="json", exclude_unset=True)),
+            actor_id=actor_id, actor_name=actor_name,
+            preserve_image_path="product_image_path" not in req.model_fields_set)
+    except db.DocumentConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="ไม่พบใบเสนอราคา / Quotation not found") from exc
 
 
 @app.get("/api/quotations")
@@ -1112,6 +1101,65 @@ def _roll_cells(row: dict[str, Any]) -> dict[str, str]:
 ROLL_KEYS = ("roll_kg", "roll_price", "roll_sale_price", "roll_quantity", "roll_total_kg", "roll_total_price")
 
 
+def history_input_details(inputs: dict[str, Any]) -> str:
+    """Only saved values: no present-day defaults or computed figures."""
+    aliases = {"density_g_cm3": "density", "material_price_per_kg": "material_price",
+        "deduction_percent": "deduction", "order_quantity": "order_qty",
+        "pack_quantity": "pack_qty", "sack_quantity": "sack_qty",
+        "control_min_g": "control_min", "control_max_g": "control_max"}
+    labels = screen_labels()["fields"]
+    extra = {"selling_price_per_kg_override": "ราคาขายที่กรอก (บาท/กก.)",
+        "selling_price_per_piece_override": "ราคาขายที่กรอก (บาท/ใบ)",
+        "selling_price_per_roll_override": "ราคาขายที่กรอก (บาท/ม้วน)",
+        "moq_quantity": "จำนวนขั้นต่ำ MOQ", "moq_unit": "หน่วย MOQ"}
+    lines = []
+    for key, value in inputs.items():
+        if value is None or value == "" or key in {"normalized", "price_basis", "human_summary"}:
+            continue
+        if key == "dimensions" and isinstance(value, dict):
+            lines.extend(history_input_details(value).splitlines())
+            continue
+        label = extra.get(key) or labels.get(aliases.get(key, key)) or key
+        if isinstance(value, dict) and "value" in value:
+            if value["value"] is None or value["value"] == "":
+                continue
+            text = str(value["value"]) + " " + str(value.get("unit", ""))
+            if value.get("mode"):
+                text += " " + {"side": "ต่อแผ่น", "pair": "ต่อคู่"}.get(value["mode"], value["mode"])
+        elif isinstance(value, bool):
+            text = "ใช่" if value else "ไม่ใช้"
+        elif isinstance(value, (dict, list)):
+            text = json.dumps(value, ensure_ascii=False)
+        else:
+            text = str(value)
+        lines.append(str(label).replace(" *", "") + ": " + text)
+    return "\n".join(lines)
+
+
+def history_size(row: dict[str, Any]) -> str:
+    inputs = row.get("inputs_json") or {}
+    key = row.get("product_key")
+    names = {"flat": "ถุงตรง", "gusset": "ถุงพับข้าง", "cover": "ถุงคลุม",
+             "sleeve": "ปลอกเปิดสองด้าน", "opaque": "แผ่นพลาสติก"}
+    # Paper-book imports often only have printed size text. Preserve it.
+    if key not in names or not _inputs_measure(inputs, "width"):
+        return str(row.get("size_text") or "")
+    def dimension(name):
+        measure = _inputs_measure(inputs, name)
+        value = measure.get("value")
+        return "ยังไม่ระบุ" if value is None or value == "" else str(value) + " " + str(measure.get("unit", ""))
+    parts = [names[key], "กว้าง " + dimension("width")]
+    if key == "gusset":
+        parts.append("พับข้าง " + dimension("gusset"))
+    parts.append("ยาว " + dimension("length"))
+    if key == "cover":
+        parts.append("สูง " + dimension("height"))
+    thickness = _inputs_measure(inputs, "thickness")
+    basis = {"pair": "ต่อคู่", "side": "ต่อแผ่น"}.get(thickness.get("mode"), "")
+    parts.append("หนา " + dimension("thickness") + (" " + basis if basis else ""))
+    return " · ".join(parts)
+
+
 def _history_cells(row: dict[str, Any]) -> dict[str, str]:
     calc_price, price_kg, price_piece = _calc_price_cells(row)
     pack_qty = float(row.get("pack_quantity") or 0)
@@ -1126,7 +1174,7 @@ def _history_cells(row: dict[str, Any]) -> dict[str, str]:
         "sale_unit": _sale_label(row.get("sale_basis")),
         "item": _item_cell(row),
         "product": str(row.get("product_label") or ""),
-        "size": str(row.get("size_text") or ""),
+        "size": history_size(row),
         "thickness": _thickness_cell(row.get("thickness_json")),
         "grams": "—" if by_roll else n(float(row.get("grams_per_item") or 0)),
         "price_basis": str(row.get("price_basis") or ""),
@@ -1138,6 +1186,8 @@ def _history_cells(row: dict[str, Any]) -> dict[str, str]:
         # selected row (app.py:4171-4183). Underscored so no column drifts in.
         "_product_reference": str(row.get("product_reference") or ""),
         "_item_description": str(row.get("item_description") or ""),
+        "_input_details": history_input_details(row.get("inputs_json") or {}),
+        "_product_key": str(row.get("product_key") or ""),
     }
 
 
@@ -1445,6 +1495,7 @@ def api_quotation_form(quote_ref: str, request: Request) -> dict[str, Any]:
     thickness_value = float(thickness.get("value") or 0)
     answer = {
         "quote_ref": row["quote_ref"],
+        "version": int(row.get("version", 1)),
         "form": {
             "customer": row["customer"],
             "customer_code": row["customer_code"],
@@ -1493,7 +1544,7 @@ def api_quotation_form(quote_ref: str, request: Request) -> dict[str, Any]:
         },
         "ref_text": (
             "กำลังแก้ไข / Editing: " + str(row["quote_ref"])
-            + " (เก็บเป็นฉบับใหม่ / Save as revision)"
+            + " (เลือกแก้ไขเดิมหรือฉบับใหม่ / Update or save a revision)"
         ),
         "status": (
             "แก้ไขแล้วคำนวณใหม่ จากนั้นกดเก็บบันทึก / Edit, recalculate, then save — "
@@ -1513,7 +1564,23 @@ def api_quotation_form(quote_ref: str, request: Request) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 
 
+def _drawing_units(req) -> dict[str, str]:
+    names = {"นิ้ว": "inch", "ซม.": "cm", "มม.": "mm", "เมตร": "m"}
+    return {name: names[getattr(req, name).unit] for name in ("width", "length", "height", "gusset")}
+
+
 def _drawing_spec(req: DrawingRequest) -> DrawingSpec:
+    for name in ("width", "length", "height", "gusset"):
+        measure = getattr(req, name)
+        if not math.isfinite(measure.value) or measure.value < 0:
+            raise ValueError("ขนาดต้องเป็นจำนวนไม่ติดลบ / Dimensions must be finite and nonnegative")
+        _to_mm(measure)
+    if req.thickness.unit not in THICKNESS_FACTORS_TO_MM or not math.isfinite(req.thickness.value) or req.thickness.value < 0:
+        raise ValueError("ความหนาต้องไม่ติดลบและมีหน่วยที่รองรับ / Thickness must be nonnegative with a supported unit")
+    if not all(math.isfinite(v) for v in (req.tol_dim_lo, req.tol_dim_hi, req.tol_thickness)) or req.tol_dim_lo > req.tol_dim_hi or req.tol_thickness < 0:
+        raise ValueError("ช่วงค่าคลาดเคลื่อนไม่ถูกต้อง / Invalid tolerances")
+    units = _drawing_units(req)
+    used = list(dict.fromkeys(units[k] for k in units if getattr(req, k).value))
     return DrawingSpec(
         doc_no=req.doc_no.strip() or "— DRAFT —",
         customer=req.customer.strip(),
@@ -1530,12 +1597,13 @@ def _drawing_spec(req: DrawingRequest) -> DrawingSpec:
         length_mm=_to_mm(req.length),
         height_mm=_to_mm(req.height),
         gusset_mm=_to_mm(req.gusset),
-        thickness_mm=thickness_to_mm(req.thickness.value, req.thickness.unit),
+        thickness_mm=thickness_to_mm(req.thickness.value, req.thickness.unit) / (2 if req.thickness.mode == "pair" else 1),
         tol_dim_lo=req.tol_dim_lo,
         tol_dim_hi=req.tol_dim_hi,
         tol_thickness=req.tol_thickness,
         length_datum=req.length_datum,
-        display_unit=req.display_unit,
+        display_unit=" / ".join(used) or "mm",
+        dimension_units=units,
         drawing_view=req.drawing_view,
         holes_count=req.holes_count,
         holes_dia=req.holes_dia.strip(),
@@ -1587,6 +1655,7 @@ class DrawingSaveRequest(BaseModel):
     holes_dia: str = ""
     label_w: float = 0.0
     label_h: float = 0.0
+    drawing_view: Literal["2d", "3d", "both"] = "2d"
     extra_notes: list[str] = Field(default_factory=list)
 
 
@@ -1596,7 +1665,11 @@ def api_drawing_save(req: DrawingSaveRequest, request: Request) -> dict[str, Any
         raise HTTPException(status_code=400, detail="ต้องระบุชื่อลูกค้า / Customer is required")
     if not req.title.strip():
         raise HTTPException(status_code=400, detail="ต้องระบุชื่อแบบ / Drawing title is required")
+    if req.thickness.value <= 0:
+        raise HTTPException(status_code=400, detail="ต้องระบุความหนามากกว่า 0 ก่อนบันทึก / Enter a positive thickness before saving")
     try:
+        preview = DrawingRequest(**req.model_dump(exclude={"drawing_date", "quote_ref"}), date=req.drawing_date)
+        render_svg(_drawing_spec(preview))
         record = {
             "doc_no": req.doc_no,
             "quote_ref": req.quote_ref.strip(),
@@ -1613,8 +1686,11 @@ def api_drawing_save(req: DrawingSaveRequest, request: Request) -> dict[str, Any
             "length_mm": _to_mm(req.length),
             "height_mm": _to_mm(req.height),
             "gusset_mm": _to_mm(req.gusset),
-            "thickness_mm": thickness_to_mm(req.thickness.value, req.thickness.unit),
+            "thickness_mm": thickness_to_mm(req.thickness.value, req.thickness.unit) / (2 if req.thickness.mode == "pair" else 1),
             "spec": {
+                "original_measures": {name: getattr(req, name).model_dump() for name in ("width", "length", "height", "gusset", "thickness")},
+                "dimension_units": _drawing_units(req),
+                "drawing_view": req.drawing_view,
                 "material": req.material.strip() or "POLYETHYLENE",
                 "color": req.color.strip() or "-",
                 "printing": req.printing.strip() or "-",
@@ -1674,6 +1750,16 @@ def api_drawing_get(doc_no: str) -> dict[str, Any]:
         number = float(value or 0)
         return g(number) if number else ""
 
+    originals = spec.get("original_measures") or {}
+    def original(name):
+        measure = originals.get(name)
+        if measure:
+            value = float(measure.get("value") or 0)
+            if name == "thickness" and measure.get("mode") == "pair":
+                value /= 2
+            return {name: str(value).removesuffix(".0") if value else "", name + "_unit": measure.get("unit", "มม.")}
+        return {name: mm(row[name + "_mm"]), name + "_unit": "มม."}
+
     return {
         "doc_no": row["doc_no"],
         "form": {
@@ -1688,12 +1774,13 @@ def api_drawing_get(doc_no: str) -> dict[str, Any]:
             "product_key": row["product_key"],
             "length_datum": row["length_datum"] or "opening_to_seal",
             "display_unit": row["display_unit"] or "mm",
+            "drawing_view": spec.get("drawing_view", "2d"),
             # Reopened in mm, as the desktop reloads them (app.py:2395-2404).
-            "width": mm(row["width_mm"]),
-            "length": mm(row["length_mm"]),
-            "height": mm(row["height_mm"]),
-            "gusset": mm(row["gusset_mm"]),
-            "thickness": mm(row["thickness_mm"]),
+            **original("width"),
+            **original("length"),
+            **original("height"),
+            **original("gusset"),
+            **original("thickness"),
             "material": str(spec.get("material") or "POLYETHYLENE"),
             "color": str(spec.get("color") or "-"),
             "printing": str(spec.get("printing") or "-"),
@@ -1753,13 +1840,18 @@ def api_planning_sources(q: str = "", limit: int = Query(default=12, ge=1, le=50
 
 def _within(value: float, nominal: float, tolerance: float) -> bool:
     """On the limit is in: 0.17 - 0.16 is 0.010000000000000009 in floating point."""
-    return abs(float(value) - nominal) <= tolerance + 1e-9
+    return abs(float(value) - float(nominal)) <= float(tolerance) + 1e-9
 
 
 def _coa_source(quote: dict[str, Any]) -> dict[str, Any]:
     inputs = quote["inputs_json"]
     normalized = inputs.get("normalized", {})
     thickness = inputs.get("thickness", {})
+    def tolerance(name):
+        value = inputs.get("tolerance_" + name) or {}
+        factors = THICKNESS_FACTORS_TO_MM if name == "thickness" else DIMENSION_FACTORS_TO_CM
+        factor = factors.get(value.get("unit", "มม."), 0)
+        return float(value.get("value") or 0) * factor * (1 if name == "thickness" else 10)
     return {
         "quote_ref": quote["quote_ref"], "customer": quote["customer"],
         "customer_code": quote["customer_code"], "part_no": quote["product_reference"],
@@ -1767,10 +1859,13 @@ def _coa_source(quote: dict[str, Any]) -> dict[str, Any]:
         "width_mm": float(normalized.get("width_cm", 0) or 0) * 10,
         # The QUOTED length: material_length_cm adds the bottom allowance that
         # sits below the seal, so a 12-inch bag was inspected at 314.8 mm.
-        "length_mm": float(normalized.get("length_cm", 0) or 0) * 10,
+        "length_mm": float(normalized.get("sold_length_m", 0) or 0) * 1000 if quote["product_key"] == "roll" else float(normalized.get("length_cm", 0) or 0) * 10,
         "thickness_mm": thickness_to_mm(float(thickness.get("value", 0) or 0), thickness.get("unit", "มม.")),
         "thickness_mode": thickness.get("mode", "pair"), "line": _source_line(quote),
         "special_requirements": str(inputs.get("special_requirements") or ""),
+        "tolerance_width_mm": tolerance("width"),
+        "tolerance_length_mm": tolerance("length"),
+        "tolerance_thickness_mm": tolerance("thickness"),
     }
 
 
@@ -1782,8 +1877,10 @@ def _sample_source(quote: dict[str, Any]) -> dict[str, Any]:
         return float(value.get("value", 0) or 0) * DIMENSION_FACTORS_TO_CM.get(value.get("unit", "มม."), .1) * 10
     thick = inputs.get("tolerance_thickness", {}) or {}
     width_input, length_input = inputs.get("width", {}) or {}, inputs.get("length", {}) or {}
+    if quote["product_key"] == "roll":
+        length_input = inputs.get("sold_length", {}) or {}
     gusset_input = inputs.get("gusset", {}) or {}
-    source.update({"product_key": quote["product_key"], "gusset_mm": float(normalized.get("gusset_cm", 0) or 0) * 10,
+    source.update({"quote_version": quote.get("version", 1), "product_key": quote["product_key"], "gusset_mm": float(normalized.get("gusset_cm", 0) or 0) * 10,
         "tolerance_width_mm": dim_tol("tolerance_width"), "tolerance_length_mm": dim_tol("tolerance_length"),
         "tolerance_thickness_mm": float(thick.get("value", 0) or 0) * THICKNESS_FACTORS_TO_MM.get(thick.get("unit", "มม."), 1),
         "tolerance_gusset_left_mm": dim_tol("tolerance_gusset_left"), "tolerance_gusset_right_mm": dim_tol("tolerance_gusset_right"),
@@ -1804,40 +1901,72 @@ def api_sample_sources(q: str = "", limit: int = Query(default=20, ge=1, le=100)
 
 @app.get("/api/sample-inspections")
 def api_sample_list(limit: int = Query(default=200, ge=1, le=1000)) -> dict[str, Any]:
-    return {"rows": db.list_sample_inspections(limit)}
+    return {"rows": db._jsonable(db.list_sample_inspections(limit))}
+
+
+def evaluate_sample(req: SampleInspectionSaveRequest, source: dict[str, Any]):
+    fields = ["width", "length", "thickness"]
+    if source["product_key"] == "gusset":
+        fields += ["gusset_left", "gusset_right"]
+    checks, results = [], []
+    for measurement in req.measurements:
+        values = measurement.model_dump()
+        outcomes = {}
+        for key in fields:
+            nominal = source["gusset_mm" if key.startswith("gusset") else key + "_mm"]
+            nominal = float(nominal or 0)
+            value = values[key]
+            # Missing historical standards cannot become an invented PASS.
+            status = "WAITING" if value is None or not math.isfinite(nominal) or nominal <= 0 else (
+                "PASS" if _within(value, nominal, getattr(req, "tolerance_" + key + "_mm")) else "FAIL")
+            outcomes[key] = status
+            checks.append(status)
+        results.append({**values, "results": outcomes})
+    overall = "FAIL" if "FAIL" in checks else "WAITING" if "WAITING" in checks else "PASS"
+    return results, overall
 
 
 @app.post("/api/sample-inspections")
-def api_sample_save(req: SampleInspectionSaveRequest) -> dict[str, Any]:
-    quote = db.get_quotation(req.quote_ref.strip())
-    if not quote:
-        raise HTTPException(status_code=404, detail="ไม่พบใบเสนอราคาอ้างอิง / Quotation not found")
-    source, results, checks = _sample_source(quote), [], []
-    specs = {"width": (source["width_mm"], req.tolerance_width_mm), "length": (source["length_mm"], req.tolerance_length_mm),
-        "thickness": (source["thickness_mm"], req.tolerance_thickness_mm), "gusset_left": (source["gusset_mm"], req.tolerance_gusset_left_mm),
-        "gusset_right": (source["gusset_mm"], req.tolerance_gusset_right_mm)}
-    for measurement in req.measurements[:3]:
-        values, item_results = measurement.model_dump(), {}
-        for key, value in values.items():
-            if value is None or (key.startswith("gusset") and source["product_key"] != "gusset"):
-                item_results[key] = ""
-            else:
-                nominal, tolerance = specs[key]
-                ok = _within(value, nominal, tolerance)
-                item_results[key] = "PASS" if ok else "FAIL"; checks.append(ok)
-        results.append({**values, "results": item_results})
-    overall = "" if not checks else ("PASS" if all(checks) else "FAIL")
-    display_json = {key: source[key] for key in ("width_original","length_original","gusset_original","thickness_original","tolerance_width_original","tolerance_length_original","tolerance_thickness_original")}
-    row = db.save_sample_inspection({**req.model_dump(exclude={"measurements"}), "results_json": results, "display_json": display_json, "overall_result": overall,
-        "customer": source["customer"], "customer_code": source["customer_code"], "part_no": source["part_no"], "product": source["product"],
-        "product_key": source["product_key"], "width_mm": source["width_mm"], "length_mm": source["length_mm"],
-        "thickness_mm": source["thickness_mm"], "thickness_mode": source["thickness_mode"], "gusset_mm": source["gusset_mm"]})
+def api_sample_save(req: SampleInspectionSaveRequest, request: Request) -> dict[str, Any]:
+    old = db.get_sample_inspection(req.id) if req.id else None
+    if req.id and not old:
+        raise HTTPException(status_code=404, detail="ไม่พบรายงาน / Sample inspection not found")
+    if old:
+        if req.quote_ref.strip() != old["quote_ref"]:
+            raise HTTPException(status_code=409, detail="รายงานเดิมเปลี่ยนใบอ้างอิงไม่ได้ / Create a new report to change its source")
+        source = old["source_snapshot"]
+    else:
+        quote = db.get_quotation(req.quote_ref.strip())
+        if not quote:
+            raise HTTPException(status_code=404, detail="ไม่พบใบเสนอราคาอ้างอิง / Quotation not found")
+        source = _sample_source(quote)
+    results, overall = evaluate_sample(req, source)
+    display_json = {key: value for key, value in source.items() if key.endswith("_original")}
+    record = {**req.model_dump(exclude={"measurements", "request_id", "expected_revision", "expected_quote_version"}),
+        "quote_ref": req.quote_ref.strip(), "results_json": results, "display_json": display_json,
+        "source_snapshot": source, "overall_result": overall}
+    for key in ("customer", "customer_code", "part_no", "product", "product_key", "width_mm", "length_mm", "thickness_mm", "thickness_mode", "gusset_mm"):
+        record[key] = source[key]
+    # Old clients omitted datum; preserve the report's saved choice.
+    if old and "length_datum" not in req.model_fields_set:
+        record["length_datum"] = old["length_datum"]
+    actor_id, actor_name = _account_name(request)
+    try:
+        row = db.save_sample_inspection(record, expected_revision=req.expected_revision,
+            expected_quote_version=req.expected_quote_version,
+            request_id=req.request_id, fingerprint=db.request_fingerprint(req.model_dump(mode="json", exclude_unset=True)),
+            actor_id=actor_id, actor_name=actor_name)
+    except db.DocumentConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="ไม่พบรายงาน / Sample inspection not found") from exc
     return {"row": row}
 
 
 @app.delete("/api/sample-inspections/{report_id}")
-def api_sample_delete(report_id: int) -> dict[str, Any]:
-    if not db.delete_sample_inspection(report_id):
+def api_sample_delete(report_id: int, request: Request) -> dict[str, Any]:
+    actor_id, actor_name = _account_name(request)
+    if not db.delete_sample_inspection(report_id, actor_id=actor_id, actor_name=actor_name):
         raise HTTPException(status_code=404, detail="Sample Inspection Report not found")
     return {"deleted": report_id}
 
@@ -1850,9 +1979,13 @@ def api_sample_print(report_id: int) -> dict[str, str]:
     r = db.get_sample_inspection(report_id)
     if not r:
         raise HTTPException(status_code=404, detail="Sample Inspection Report not found")
-    display = r.get("display_json") or {}
+    snapshot = r.get("source_snapshot") or {}
+    # Precision and originals belong to the report, never today's quotation.
+    r = {**r, **{key: snapshot[key] for key in ("width_mm", "length_mm", "thickness_mm", "gusset_mm") if key in snapshot}}
+    display = {**(r.get("display_json") or {}), **{key: value for key, value in snapshot.items() if key.endswith("_original")}}
+    datum = {"opening_to_bottom": "Opening to Bottom", "opening_to_seal": "Opening to Seal"}.get(r.get("length_datum"), "NOT RECORDED")
     chars = [("Width", "width", r["width_mm"], r["tolerance_width_mm"], display.get("width_original", {}), False),
-        ("Length", "length", r["length_mm"], r["tolerance_length_mm"], display.get("length_original", {}), False),
+        ("Length (" + datum + ")", "length", r["length_mm"], r["tolerance_length_mm"], display.get("length_original", {}), False),
         ("Thickness", "thickness", r["thickness_mm"], r["tolerance_thickness_mm"], display.get("thickness_original", {}), True)]
     if r["product_key"] == "gusset":
         chars += [("Gusset Left", "gusset_left", r["gusset_mm"], r["tolerance_gusset_left_mm"], display.get("gusset_original", {}), False),
@@ -1894,10 +2027,18 @@ def api_coa_list(limit: int = Query(default=200, ge=1, le=1000)) -> dict[str, An
 
 @app.post("/api/coa")
 def api_coa_save(req: CoaSaveRequest) -> dict[str, Any]:
-    quote = db.get_quotation(req.quote_ref.strip())
-    if not quote:
-        raise HTTPException(status_code=404, detail="ไม่พบใบเสนอราคาอ้างอิง / Quotation not found")
-    source = _coa_source(quote)
+    if req.id:
+        previous = db.get_coa(req.id)
+        if not previous:
+            raise HTTPException(status_code=404, detail="COA not found")
+        if previous["quote_ref"] != req.quote_ref.strip():
+            raise HTTPException(status_code=409, detail="Create a new COA to change its source quotation")
+        source = previous
+    else:
+        quote = db.get_quotation(req.quote_ref.strip())
+        if not quote:
+            raise HTTPException(status_code=404, detail="ไม่พบใบเสนอราคาอ้างอิง / Quotation not found")
+        source = _coa_source(quote)
     if min(source["width_mm"], source["length_mm"], source["thickness_mm"]) <= 0:
         raise HTTPException(status_code=400, detail="ใบเสนอราคาไม่มีขนาดครบสำหรับ COA / Source dimensions are incomplete")
     actuals = (req.actual_width_mm, req.actual_length_mm, req.actual_thickness_mm)
@@ -1916,6 +2057,18 @@ def api_coa_save(req: CoaSaveRequest) -> dict[str, Any]:
         "length_mm": source["length_mm"], "thickness_mm": source["thickness_mm"],
         "thickness_mode": source["thickness_mode"], "created_by": ""})
     return {"row": row}
+
+
+@app.delete("/api/coa/{coa_id}")
+def api_coa_delete(coa_id: int, request: Request) -> dict[str, Any]:
+    actor_id, actor_name = _account_name(request)
+    try:
+        deleted = db.delete_coa(coa_id, actor_id=actor_id, actor_name=actor_name)
+    except db.DocumentConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="COA not found")
+    return {"deleted": coa_id}
 
 
 @app.get("/api/coa/{coa_id}/print")
@@ -2397,7 +2550,8 @@ def build_print_html(req: PrintRequest, out: dict[str, Any]) -> str:
         + pack_note +
         "<h2>สูตรที่บันทึก / Saved Formulas</h2>"
         "<table>" + _print_rows(formulas) + "</table>"
-        "</div></body></html>"
+        "</div><div style='position:fixed;bottom:2mm;left:4mm;right:4mm;border-top:1px solid #999;padding-top:3px;font-size:9px;display:flex;justify-content:space-between'>"
+        "<span>PANTONG THAI PACK CO., LTD. • Quotation</span><span>Printed: " + stamp + " • Page 1 of 1</span></div></body></html>"
     )
 
 

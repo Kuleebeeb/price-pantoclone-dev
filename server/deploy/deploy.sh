@@ -17,29 +17,44 @@ if [[ ! -f .env ]]; then
 fi
 set -a; source .env; set +a
 PORT="${API_PORT:-8100}"
+REV="$(awk 'NR==1 {print $1}' CANDIDATE_REV 2>/dev/null || true)"
+if [[ ! "$REV" =~ ^[0-9a-f]{40}$ ]]; then
+    REV="$(git rev-parse HEAD)"
+fi
 
 echo "==> 1/6  pg_dump TRUOC khi lam bat cu gi"
 mkdir -p "$BACKUP_DIR"
-if docker compose ps --status running --services 2>/dev/null | grep -qx postgres; then
+RUNNING_SERVICES="$(docker compose ps --status running --services)"
+if grep -qx postgres <<< "$RUNNING_SERVICES"; then
     DUMP="$BACKUP_DIR/pricing-$STAMP.sql.gz"
     docker compose exec -T postgres pg_dump -U "${POSTGRES_USER:-pricing}" -d "${POSTGRES_DB:-pricing}" \
         | gzip > "$DUMP"
     echo "    backup: $DUMP ($(du -h "$DUMP" | cut -f1))"
 else
-    echo "    chua chay lan nao - bo qua backup"
+    echo "HONG: Postgres khong chay; khong the backup. Dung update, khong coi day la cai moi." >&2
+    exit 1
+fi
+gzip -t "$DUMP"
+PREVIOUS_IMAGE="$(docker compose images -q api | head -n 1)"
+if [[ -n "$PREVIOUS_IMAGE" ]]; then
+    docker image tag "$PREVIOUS_IMAGE" "thaiplastic-api:before-$STAMP"
+    printf '%s\n' "thaiplastic-api:before-$STAMP" > "$BACKUP_DIR/image-before-$STAMP.txt"
 fi
 
 echo "==> 2/6  nguon"
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git pull --ff-only
+    REV="$(git rev-parse HEAD)"
 else
     # Khong phai git checkout: deploy/ship.sh da bung goi tar cua mot commit len
-    # day va ghi ten commit vao DEPLOYED_REV. Khong co gi de pull.
-    echo "    khong phai git checkout - nguon do deploy/ship.sh dua len: $(cat DEPLOYED_REV 2>/dev/null || echo '?')"
+    # day va ghi ten commit vao CANDIDATE_REV. Khong co gi de pull.
+    echo "    khong phai git checkout - nguon do deploy/ship.sh dua len: $REV"
 fi
 
 echo "==> 3/6  build image"
-docker compose build
+docker compose build --build-arg "SOURCE_REV=$REV"
+NEW_IMAGE="$(docker image inspect thaiplastic-api:latest --format '{{.Id}}')"
+docker image tag "$NEW_IMAGE" "thaiplastic-api:$REV"
 
 echo "==> 4/6  test doi chieu voi ban desktop cua CEO"
 # Lech mot so la dung deploy. Cong thuc trong core/ la ban sao tung byte cua
@@ -54,8 +69,16 @@ docker compose up -d
 echo "==> 6/6  cho health that (ping Postgres), toi da 60 giay"
 for i in $(seq 1 30); do
     if curl -fsS -m 3 "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
+        RUNNING_IMAGE="$(docker inspect --format '{{.Image}}' "$(docker compose ps -q api)")"
+        if [[ "$RUNNING_IMAGE" != "$NEW_IMAGE" ]]; then
+            echo "HONG: API khong chay image vua build; khong ghi DEPLOYED_REV." >&2
+            exit 1
+        fi
         echo "    OK sau $((i * 2)) giay"
         curl -s "http://127.0.0.1:${PORT}/api/health"; echo
+        printf '%s %s\n' "$REV" "$STAMP" > DEPLOYED_REV
+        printf '%s\n' "$NEW_IMAGE" > DEPLOYED_IMAGE
+        rm -f CANDIDATE_REV
         echo
         echo "Ban cai dat dang phuc vu:"
         curl -s "http://127.0.0.1:${PORT}/api/version"; echo

@@ -9,3 +9,14 @@ server/releases
 server/backups
 .git
 *.log
+**/.git
+**/.env
+**/.env.*
+**/.venv
+**/venv
+**/*.sqlite
+**/*.sqlite3
+**/local-data
+**/backups
+02_PRIVATE_DATA_DO_NOT_PUBLISH
+etl-output

@@ -1,0 +1,302 @@
+PANTONGONE - KẾ HOẠCH CẬP NHẬT BẢN CEO BÀN GIAO NGÀY 08/10/2026
+Ngày lập: 08/10/2026 (Asia/Saigon)
+Trạng thái: Đã ghép chức năng và kiểm thử kỹ thuật; đang chuẩn bị commit/triển khai.
+Kết quả thực hiện và giới hạn kiểm thử ở mục 8. Mục 1-7 lưu kế hoạch đối chiếu ban đầu.
+
+1. KẾT LUẬN CHO CEO
+
+Tiếp nhận các thay đổi nghiệp vụ của CEO trên nền PantongOne đang chạy ngày
+02/10/2026. Không thay toàn bộ chương trình bằng thư mục bàn giao: backend trong
+gói bàn giao cũ hơn backend hiện tại, thiếu phân quyền và một số sửa lỗi đã phát hành.
+
+Bốn nhóm cập nhật chính:
+- Sửa báo giá tại chỗ, phân biệt rõ với tạo revision/bản sao.
+- Lịch sử báo giá hiển thị rõ kích thước và các thông số đã nhập.
+- Bản vẽ dùng đơn vị nhập của từng kích thước, bổ sung chi tiết hiển thị túi cover.
+- Phiếu kiểm mẫu có lưu/in, lịch sử và tiêu chuẩn đo được giữ nguyên theo bản đã lưu.
+
+Ưu tiên đầu tiên là tính đúng của phiếu kiểm mẫu và hợp đồng sửa báo giá.
+Backend hiện tại có thể kết luận PASS khi chưa nhập đủ số đo. Giao diện mới gửi
+update_ref nhưng API hiện tại chưa nhận trường này, nên có thể tạo báo giá mới
+thay vì sửa báo giá đang mở.
+
+Phạm vi người dùng đã chốt: cập nhật chức năng trước; đối soát dữ liệu CEO thành
+một bước riêng. Đợt cập nhật chức năng không nhập dữ liệu riêng vào production.
+Chỉ nhập trong một đợt sau nếu phạm vi và kết quả đối soát được duyệt.
+Không gồm chương trình đăng ký thổi/cắt, thay hệ thống PacOs hay phát hành .exe mới.
+Gói này không có bộ cài; /api/version đang mô tả bộ cài desktop, không phải commit web.
+
+2. CƠ SỞ ĐỐI CHIẾU
+
+Bản hiện tại:
+- Repo D:\ThaiPlasticPricing, nhánh main, HEAD af8062e.
+- Working tree sạch trước đối chiếu; chỉ tài liệu kế hoạch này được thêm sau đó.
+- Đã đọc trực tiếp /srv/thaiplastic/server/DEPLOYED_REV trên pacos-prod:
+  af8062e 20261002-190655.
+- /api/health tại loopback 8100 trả ok, PostgreSQL ok; version hiển thị bản CEO
+  ngày 02/10 với MOQ, bán theo cuộn và thùng rác. Đây là kiểm tra trực tiếp ngày
+  08/10; chưa băm toàn bộ mã trên host để chứng minh mọi byte khớp checkout.
+- /api/version trả bộ cài PantongOne_v1.7.1.exe.
+- Chạy lại frontend trên máy này: npm run build PASS; npm test PASS 73/73,
+  14/14 tệp. Chưa chạy lại toàn bộ backend/integration trong đợt lập kế hoạch.
+
+Bản CEO bàn giao:
+- C:\Users\Acer\Downloads\PANTONGONE_HANDOFF_20261008.
+- Là snapshot working tree, không phải release Git sạch. HEAD nguồn ebfe14b;
+  chỉ checkout commit này sẽ không lấy đủ các thay đổi của CEO.
+- Kiểm tra SHA-256 hiện tại: 144/144 mục của PACKAGE_SHA256.json và 109/109
+  mục nguồn đúng hash/kích thước; file checksum không tự liệt kê chính nó.
+- So sánh 109 tệp nguồn, chuẩn hóa CRLF/LF: 73 giống, 26 khác, 10 chỉ có trong
+  bàn giao. Có 18 tệp đang được Git theo dõi ở repo hiện tại không có trong gói,
+  gồm tài liệu, phân quyền, migration và kiểm thử; không coi đó là yêu cầu xóa.
+- Log kiểm thử đi kèm ghi 6 lỗi TypeScript ở SampleInspection.tsx và 58/63 test
+  frontend đạt, 5 thất bại. Đây là bằng chứng bàn giao, chưa chạy lại gói này tại đây.
+- Các suite backend thiếu fastapi/psycopg trong môi trường bàn giao được xếp
+  chưa chạy được, không tự kết luận là lỗi nghiệp vụ.
+
+3. KHÁC BIỆT VÀ CÁCH TIẾP NHẬN
+
+A. Sửa báo giá tại chỗ - CHỨC NĂNG MỚI, CẦN BACKEND
+Hiện tại API tính lại và tạo báo giá mới/revision. Bản CEO thêm update_ref,
+giữ định danh khi sửa và lưu phiên bản trước trong edit_history ở local mock.
+Kế hoạch: thêm thao tác cập nhật tường minh; tính lại phía server; lưu dấu vết
+trước/sau; chặn ghi đè khi hai người cùng sửa. Không để trường bị bỏ qua âm thầm.
+Phải chốt loại báo giá được sửa tại chỗ, nhất là báo giá đã dùng cho Drawing,
+Sample hoặc đã gửi khách. Các bản in đã phát hành phải giữ được nội dung cũ.
+
+B. Lịch sử báo giá - CẢI TIẾN MỚI, MỘT PHẦN HIỂN THỊ
+Bản CEO có cột dễ đọc hơn và phần mở rộng các thông số nhập ban đầu; kích thước
+gusset/cover và cơ sở độ dày được thể hiện rõ hơn.
+Kế hoạch: đưa projection tương ứng vào API PostgreSQL, lấy từ dữ liệu đã lưu;
+giữ trường thiếu là thiếu và tiếp tục che giá theo quyền. HistoryTree.tsx không
+đổi trong snapshot, nên không mặc định giao diện cây cũng có phần chi tiết mới.
+
+C. Drawing - CHỨC NĂNG MỚI CẦN ĐỒNG BỘ GIAO DIỆN VÀ API
+Bản CEO hỗ trợ đơn vị riêng theo từng kích thước, định dạng mm/cm/m/inch,
+quy đổi bảng dung sai và chú thích OPEN BOTTOM/vị trí chiều sâu túi cover.
+Local mock truyền dimension_units; API thật hiện chưa truyền/lưu đủ dữ liệu này.
+Kế hoạch: lưu đơn vị gốc theo trường, cùng giá trị chuẩn dùng tính toán; thống nhất
+preview -> lưu -> mở lại -> in. Bảo toàn quy đổi và dung sai đã sửa ở bản hiện tại.
+
+D. Sample Inspection - ƯU TIÊN CAO NHẤT
+Bản CEO thêm luồng Save & Print, lịch sử bản in, khối xác nhận và source_snapshot.
+Local yêu cầu đúng ba mẫu; dữ liệu thiếu thành WAITING; có xóa mềm và nhật ký.
+Các phần còn phải sửa hoặc chuyển sang API thật:
+- API hiện tại bỏ qua số đo thiếu và có thể PASS khi chỉ có một phần dữ liệu.
+- API đang dựng lại tiêu chuẩn từ báo giá hiện tại khi sửa phiếu; cần giữ snapshot.
+- length_datum và đơn vị/độ chính xác phải đi qua mọi luồng lưu, sửa, tải lại và in.
+- Save thường chưa gửi datum như Save & Print; Edit chưa phục hồi đầy đủ snapshot.
+- Bản CEO bỏ xử lý sai số số thực ở biên dung sai, có thể làm đúng biên thành FAIL.
+- Local dùng SI theo ngày tạo Bangkok; hiện tại dùng SIR theo ngày kiểm tra.
+- Xóa phiếu hiện tại là xóa cứng; cần tiếp nhận retention/audit nếu giữ hành vi CEO.
+- Bản in mới chỉ mapping gusset trái dù có ô nhập cả hai bên; bổ sung/đối chiếu
+  gusset phải, Remarks và thông tin người xác nhận.
+Migration 0008 hiện chỉ cho kết quả rỗng/PASS/FAIL; phải thêm migration mới nếu
+chọn lưu WAITING tường minh. Không sửa migration cũ đã chạy.
+
+E. ĐÃ CÓ Ở BẢN HIỆN TẠI - GIỮ NGUYÊN KHI GHÉP
+- MOQ, bán theo cuộn, thùng rác và khôi phục báo giá đã được đưa lên API thật 02/10.
+- Phân quyền theo màn hình, che giá và kiểm quyền phía server.
+- PacOs đăng nhập bằng pricing.sign_in; gói CEO còn dùng key giá vốn cũ.
+- Sửa chiều dài danh nghĩa theo báo giá và so sánh đúng tại biên dung sai.
+- Migration 0010/0011, ship.sh và các test hồi quy hiện tại.
+Tài liệu audit của gói mô tả nhiều mục trên là chưa có vì nó kiểm tra backend
+trong snapshot. Không dùng các nhận xét đó để kết luận host hiện tại cũng thiếu.
+
+Hai file công thức calculator.py/formula_engine.py không nằm trong delta nguồn.
+Giữ nguyên công thức nền; kiểm tra quy đổi, lưu dữ liệu và kết quả hiển thị.
+COA không phải nhóm thay đổi nguồn chính; vẫn cần kiểm thử hồi quy khi nguồn báo
+giá, dữ liệu bản vẽ hoặc cơ chế sửa báo giá thay đổi.
+
+4. THỨ TỰ THỰC HIỆN VÀ ĐIỀU KIỆN HOÀN THÀNH
+
+Pha 1 - Tách nhánh tiếp nhận và khóa phạm vi
+[ ] Tạo worktree/nhánh riêng từ af8062e hoặc HEAD mới đã kiểm tra lúc bắt đầu làm.
+[ ] Giữ nguyên thư mục bàn giao; chỉ mang từng delta nguồn đã duyệt vào nhánh.
+[ ] Giữ các test phân quyền, MOQ/cuộn/thùng rác và giới hạn dung sai hiện tại.
+[ ] Đóng các quyết định ở mục 6 trước khi làm phần phụ thuộc quyết định đó.
+Đầu ra: danh sách delta chọn nhận; tiêu chí nghiệm thu và mẫu chuẩn CEO/QC.
+
+Pha 2 - Đồng bộ API và dữ liệu lưu
+[ ] Bổ sung contract sửa báo giá, kiểm quyền, audit và kiểm tra phiên bản chống
+    ghi đè. Thử save/retry/update/revision, mã trùng giữa khách và xung đột đồng thời.
+[ ] Bổ sung dữ liệu lịch sử, đơn vị Drawing và snapshot Sample trong API thật.
+[ ] Sample: đủ ba mẫu, số hữu hạn/không âm, trường áp dụng theo loại sản phẩm,
+    WAITING/PASS/FAIL, dung sai biên, số báo cáo và xóa mềm theo quyết định đã chốt.
+[ ] Migration nối tiếp sau 0011, đối chiếu số mới ở HEAD khi thực hiện; tương thích
+    dữ liệu cũ và giữ nguyên số báo cáo cũ. Không thay lại 0001-0011.
+[ ] API test với PostgreSQL dùng riêng: tạo, sửa, mở lại và in sau khi nguồn đổi.
+Đầu ra: API thật thực hiện đúng hành vi CEO; không phụ thuộc dev_mock_api.py.
+
+Pha 3 - Ghép giao diện và sửa lỗi bàn giao
+[ ] Nhận từng phần Desk/History/Drawing/Sample, giữ bộ lọc quyền và refreshUser.
+[ ] Đồng bộ kiểu getMe với API hiện tại; không mang kiểu response cũ vào ứng dụng.
+[ ] Sửa sáu chẩn đoán TypeScript; điều tra năm test thất bại, phân biệt yêu cầu mới
+    với lỗi thật. Không tắt typecheck hoặc xóa test chỉ để build xanh.
+[ ] Lưu thường, Save & Print và Edit cùng phục hồi datum/snapshot/đơn vị đúng.
+[ ] Tích hợp test mới qua API PostgreSQL; các test mock chỉ dùng làm mẫu hành vi.
+[ ] Chuyển test-customer-report.cjs khỏi đường dẫn runtime riêng của máy CEO.
+Đầu ra: build/lint/test xanh, giao diện dùng API thật; lỗi lưu giữ nguyên form.
+
+Pha 4 - Đối soát dữ liệu CEO, tách khỏi cập nhật chức năng
+Luồng riêng, có thể làm sau đợt chức năng. Không chặn phát hành chức năng nếu
+không nhập dữ liệu CEO; việc thử migration schema trên dữ liệu cũ vẫn bắt buộc.
+[ ] Nếu có nhập dữ liệu: lập công cụ dry-run với mapping nguồn -> đích, import
+    ledger, transaction, chạy lại không trùng và danh sách conflict để duyệt.
+[ ] Thử trên bản sao DB hiện tại trong môi trường cô lập, đồng thời kiểm tra
+    migration schema từ DB trống. Không chỉ thử nhập vào DB trống.
+[ ] Đối chiếu từng hồ sơ/snapshot/revision/số tiếp theo, không chỉ tổng số dòng.
+[ ] Chỉ nhập production sau khi chốt phạm vi và duyệt kết quả đối soát.
+Đầu ra: báo cáo dữ liệu sẽ thêm, trùng, khác, bỏ qua; không ghi đè tự động.
+
+Pha 5 - CEO/QC nghiệm thu trên môi trường riêng
+[ ] Đủ sáu loại sản phẩm và các đơn vị liên quan; mặt/cặp, MOQ, giá/cuộn.
+[ ] Sửa tại chỗ giữ REF theo quy tắc; revision đúng; retry không tạo trùng;
+    hai người sửa không mất dữ liệu; lỗi mạng không xóa form.
+[ ] Không đủ mẫu không PASS; đủ mẫu cho đúng PASS/FAIL; đúng biên vẫn PASS;
+    số âm/NaN/Infinity bị từ chối; đủ cả hai gusset khi áp dụng.
+[ ] Sửa báo giá gốc không làm đổi phiếu/bản in đã phát hành; edit/reprint không
+    cấp lại số; cấp số đồng thời và qua nửa đêm Bangkok đúng.
+[ ] Drawing/Sample/COA in A4 không mất chữ, đúng đơn vị, datum và Remarks.
+[ ] Không quyền không xem giá/sửa/xóa/khôi phục; đăng nhập PacOs còn hoạt động.
+[ ] Chạy lại hồi quy backend hiện có và UI end-to-end trên API thật.
+Đầu ra: bộ mẫu được CEO/QC duyệt và bằng chứng kiểm thử cho đúng commit release.
+
+Pha 6 - Phát hành và kiểm tra sau cập nhật
+[ ] Xác minh lại host/domain đang dùng, commit, schema và cấu hình cần thiết;
+    giữ cơ chế đăng nhập và cầu nối hiện tại, không bật lại đồng bộ cũ.
+[ ] Tạo commit/tag, changelog và image có định danh cố định; giữ image/source cũ.
+[ ] Bảo đảm backup dừng triển khai khi lỗi. Nhánh deploy hiện có bỏ backup nếu
+    không thấy postgres chạy: phải phân biệt cài mới với DB cũ đang dừng/lỗi.
+[ ] Diễn tập restore DB riêng trước phát hành; bảo vệ dữ liệu và .env khỏi gói build.
+[ ] Chạy ship/deploy cho riêng /srv/thaiplastic; không dựng lại stack PacOs.
+[ ] Đợt này chỉ cập nhật chức năng và schema cần thiết, không nhập dữ liệu CEO.
+    Nếu sau này duyệt nhập: ngừng ghi nguồn/đích theo cửa sổ riêng, chụp lại
+    SQLite/JSON nhất quán, backup đích, nhập bằng công cụ đã thử và đối soát.
+[ ] Kiểm tra health, commit/image, URL CEO sử dụng, đăng nhập, tải lại báo giá,
+    History, bản vẽ và phiếu mẫu. Xác minh bundle mới thực sự đang được phục vụ.
+[ ] Chỉ mở lại ghi sau kiểm tra. Nếu lỗi trước mở ghi: phục hồi bộ image + DB
+    tương thích. Nếu đã có dữ liệu mới: dừng ghi, giữ và đối soát dữ liệu mới trước
+    rollback; không restore đè làm mất giao dịch.
+Đầu ra: release được nghiệm thu, bản sao lưu phục hồi được và xác nhận CEO dùng đúng bản.
+
+5. DỮ LIỆU RIÊNG ĐƯỢC BÀN GIAO
+
+Đã xác minh hash, SQLite integrity_check và tổng số, không đưa nội dung khách
+hàng vào kế hoạch này:
+- SQLite: 28 records; 17 cancellation; 17 cancellation_log; 8 quote_series;
+  9 save_requests; 9 save_fingerprints.
+- JSON chính: 7 drawings; 8 samples; 9 deleted_quotes; 52 audit; 3 daily counters.
+- history-actions.previous.json là bản trước, không cộng vào bản chính.
+- visual-review-saved.json có 63 rows; phải phân loại trước, không cộng với 28 records.
+- Không có dữ liệu browser đầy đủ hay dump PostgreSQL production trong gói.
+- SQLite và JSON không được chụp trong cùng một khoảng dừng ghi; không coi snapshot
+  này là nguồn cutover nhất quán cuối cùng.
+Không commit/upload các tệp ở 02_PRIVATE_DATA_DO_NOT_PUBLISH vào repo hoặc image.
+
+6. CÁC QUYẾT ĐỊNH CẦN CHỐT TRƯỚC PHẦN VIỆC PHỤ THUỘC
+
+1) Dữ liệu - ĐÃ CHỐT: chức năng trước; dữ liệu đối soát riêng. Đợt chức năng
+   bảo toàn DB production, không nhập SQLite/JSON CEO. Chưa duyệt đợt nhập sau.
+2) Sửa báo giá - ĐÃ CHỐT: được sửa cùng REF, lưu lịch sử; giữ nguyên tài liệu
+   đã phát hành dù đã có Drawing/Sample/COA. Có thao tác Revision riêng.
+3) Sample - ĐÃ CHỐT: phiếu mới dùng SI theo ngày tạo Bangkok. Giữ nguyên số
+   phiếu cũ; không cấp lại khi in và không tái dùng số đã hủy.
+4) QC: xác nhận mẫu bắt buộc theo loại sản phẩm, ý nghĩa datum/mặt-cặp, dung sai,
+   WAITING khi thiếu và mẫu in cuối cùng. Có người chịu trách nhiệm duyệt bộ mẫu.
+
+Những điểm này không chặn việc chuẩn bị worktree, sửa build và giữ test hồi quy;
+chúng chặn phần triển khai có thể thay đổi lịch sử, số chứng từ hoặc dữ liệu thật.
+Chưa chốt lịch production khi chưa hoàn tất pha 2-3 và pha 5. Pha 4 là luồng
+đối soát riêng, không là điều kiện của đợt chức năng. Cửa sổ bảo trì được chọn
+sau khi đo migration schema và restore trên dữ liệu thử tương đương.
+
+7. ĐỊA CHỈ BẰNG CHỨNG ĐỂ THỰC HIỆN
+
+Tiền tố CURRENT = D:\ThaiPlasticPricing.
+Tiền tố HANDOFF = C:\Users\Acer\Downloads\PANTONGONE_HANDOFF_20261008.
+
+- HANDOFF\00_READ_ME_FIRST.txt:4-5,19-23,37-44: trạng thái và nguồn snapshot.
+- HANDOFF\03_AUDIT_EVIDENCE\source_manifest.json; PACKAGE_SHA256.json: hash.
+- HANDOFF\03_AUDIT_EVIDENCE\frontend_production_build.log:5-13: sáu lỗi TypeScript.
+- HANDOFF\04_DOCUMENTATION\01_AUDIT_VI.txt: kiểm thử, giới hạn và dữ liệu.
+- HANDOFF\01_SOURCE\dev_mock_api.py:131-183,217-237,296-310: history/update_ref.
+- HANDOFF\01_SOURCE\local_history_actions.py:13-22,60-81,195-207,238-243:
+  số Sample, validation, snapshot và xóa mềm.
+- HANDOFF\01_SOURCE\server\core\drawing.py:94,320-349,385-444: đơn vị và bản vẽ.
+- HANDOFF\01_SOURCE\pantongone-frontend\src\panels\SampleInspection.tsx:16-30,63:
+  lưu/in và khôi phục form khi sửa.
+- CURRENT\server\api\main.py:238-248; api\db.py:86-130: API hiện tại tạo báo giá.
+- CURRENT\server\api\main.py:1754-1770,1812-1834: dung sai, nguồn và kết quả Sample.
+- CURRENT\server\api\db.py:586-630: số Sample và xóa phiếu.
+- CURRENT\server\api\migrations\0008_sample_inspections.sql:23: CHECK kết quả.
+- CURRENT\server\api\permissions.py; migrations\0010_one_tick_per_screen.sql;
+  migrations\0011_quotation_trash.sql: các phần phải giữ.
+- CURRENT\server\api\pacos_gate.py:45-51: quyền pricing.sign_in.
+- CURRENT\server\deploy\ship.sh; deploy.sh; server\docker-compose.yml:
+  đường deploy hiện tại và Postgres/network/volume riêng của PantongOne.
+
+Lưu ý: số dòng theo snapshot đối chiếu ngày 08/10. README cũ của server và một số
+comment domain/tích hợp đã lỗi thời; khi triển khai phải đối chiếu code/config và
+host thực tế, không dựng lại hạ tầng từ hướng dẫn cũ trong handoff.
+
+8. KẾT QUẢ THỰC HIỆN NGÀY 08/10/2026
+
+Mã được ghép trên worktree D:\ThaiPlasticPricing-ceo-20261008, nhánh
+codex/ceo-20261008 từ af8062e. Không sao chép backend cũ, mock, dữ liệu khách
+hàng, SQLite/JSON riêng hoặc bộ cài từ handoff vào ứng dụng triển khai.
+
+Đã hoàn tất:
+- Sửa cùng REF, tăng version, audit trước/sau, chống ghi đè và retry trùng;
+  nút Revision vẫn tạo chứng từ riêng. Giữ đường dẫn ảnh khi form không gửi nó.
+- History hiển thị thông số/đơn vị ban đầu; giữ kiểm quyền và che giá hiện có.
+- Drawing lưu đơn vị từng kích thước, quy đổi inch/mm và cm/m, OPEN BOTTOM
+  và đường kích thước ngoài hình cover; bản in có ngày in Bangkok/số trang.
+- Sample giữ snapshot nguồn, datum và đơn vị khi lưu/sửa/in; ba mẫu bắt buộc,
+  thiếu dữ liệu là WAITING, đủ mới xét PASS/FAIL. In cả hai bên gusset, giữ
+  độ chính xác và dung sai 0. Phiếu mới dùng SI theo ngày tạo Bangkok.
+- Chặn tạo Sample nếu báo giá nguồn đã đổi phiên bản trong lúc nhập số đo;
+  giao diện cho chọn lại cùng REF để lấy phiên bản mới sau lỗi 409.
+- Giữ nguyên số SIR cũ; xóa mềm và audit. Bản in thông thường vừa một A4 ngang;
+  Remarks dài tự sang trang và giữ nguyên phần ký duyệt.
+- COA giữ tiêu chuẩn đã lưu khi sửa; chỉ cho xóa bản nháp và ghi audit,
+  không xóa bản đã phát hành. Các tài liệu đã lưu không đổi theo báo giá mới.
+- Migration mới 0012; không sửa migration 0001-0011.
+- Deploy chỉ đóng gói tệp đã commit, loại env/dữ liệu riêng; backup lỗi thì dừng.
+  Giữ image trước cập nhật, đánh dấu source SHA và chỉ ghi DEPLOYED_REV sau
+  khi health thật và image của container đang chạy khớp image vừa build.
+
+Kiểm chứng kỹ thuật:
+- Frontend: 88 tests, TypeScript/Vite build và lint đạt.
+- API/PostgreSQL: 289 assertions thuộc 7 suites đạt trên Docker Python 3.13.16
+  và DB synthetic riêng; thêm 4 tests đơn vị/bản vẽ/ngày Bangkok đạt.
+- Pricing parity: 12 ca x 15 trường không lệch; pricing rules, screen logic,
+  quyền/PacOs và các kiểm thử dữ liệu/lịch sử liên quan đã chạy.
+- 4 tests cổng deploy đạt: lỗi discovery/DB dừng/dump, health lỗi, image sai
+  không ghi nhãn thành công; thành công giữ định danh image cũ/mới.
+- Trình duyệt thật: đăng nhập local, tạo Sample WAITING, nhập đủ thành PASS,
+  Save & Print, mở lại datum/Remarks, in lại không tăng revision/cấp số.
+- PDF đã render và xem trực tiếp: Sample 5 hàng gusset và cover Drawing đều
+  1 trang A4 ngang, không mất khối khách hàng duyệt; Remarks 70 dòng là 3 trang.
+- Restore pg_dump production vào DB cô lập rồi chạy 0012: 13 bảng/18.297 dòng
+  cũ giữ nguyên hash trên toàn bộ cột đã tồn tại; chạy migration lần hai no-op.
+  Dữ liệu SIR cũ được kiểm riêng trên DB synthetic trước migration.
+- Khởi động image Docker trên DB trống cũng đạt toàn bộ migration và health.
+
+Giới hạn / việc tách riêng:
+- Không nhập dữ liệu CEO. Đối soát ở pha 4 chưa thực hiện và chưa được duyệt nhập.
+- Đây là nghiệm thu kỹ thuật; chưa có xác nhận thao tác thực tế của CEO/QC.
+- Formula engine giữ nguyên. Suite sẵn có còn ghi nhận 4 lỗi literal cực lớn
+  (Infinity, giới hạn 1e15, integer overflow trực tiếp/trong biểu thức); chúng
+  không phát sinh từ delta này. Không coi exit 0 của suite đó là đã sửa 4 lỗi.
+- Chỉ kiểm chứng đăng nhập/quyền PacOs bằng regression cô lập; không giả lập
+  việc CEO đã đăng nhập trên production hoặc tạo phiếu giả trên production.
+- Khi rollback có dữ liệu mới, không restore đè DB. Giữ dữ liệu mới và đối soát
+  trước; các thay đổi schema đợt này đã được diễn tập giữ nguyên trường cũ.
+
+Bằng chứng cục bộ (ngoài Git, không nằm trong image):
+D:\tmp\pantong-ceo-20261008-qa\container-*.log,
+D:\tmp\pantong-ceo-20261008-qa\browser\,
+D:\tmp\pantong-ceo-20261008-qa\frontend-print\.
+Backup production dùng diễn tập: production-before.dump, 919.841 bytes,
+SHA-256 8f55598b167a1e812587fc29bee4f7e511f9f0482b83b5e563f709b7d182f961.

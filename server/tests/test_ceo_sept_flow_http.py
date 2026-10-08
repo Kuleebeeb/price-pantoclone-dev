@@ -187,7 +187,7 @@ lim = {"width": 111.6, "length": 294.8, "thickness": 0.17, "gusset_left": None, 
 lim2 = {"width": 91.6, "length": 314.8, "thickness": 0.15, "gusset_left": None, "gusset_right": None}
 s, si = call("POST", "/api/sample-inspections", {"quote_ref": fref, "inspection_date": "2026-09-30",
              "tolerance_width_mm": 10, "tolerance_length_mm": 10, "tolerance_thickness_mm": 0.01,
-             "tolerance_gusset_left_mm": 0, "tolerance_gusset_right_mm": 0, "measurements": [lim, lim2],
+             "tolerance_gusset_left_mm": 0, "tolerance_gusset_right_mm": 0, "measurements": [lim, lim2, lim],
              "remarks": "", "checked_by": "QC", "approved_by": ""})
 row = si.get("row", {}) if isinstance(si, dict) else {}
 check("sample on every limit -> PASS", s == 200 and row.get("overall_result") == "PASS", (s, row.get("overall_result"), row.get("results_json")))

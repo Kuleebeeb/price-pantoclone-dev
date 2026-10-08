@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
-from datetime import date
+from datetime import date, datetime
+from decimal import Decimal
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Any
 
@@ -83,51 +86,102 @@ def next_reference(conn: Connection, quote_date: date) -> str:
     return "QT-" + stamp + "-" + str(row["last_number"]).zfill(4)
 
 
-def save_quotation(record: dict[str, Any]) -> dict[str, Any]:
+class DocumentConflict(ValueError):
+    """A stale form or a request id reused for different contents."""
+
+
+def _jsonable(value: Any) -> Any:
+    def encode(item):
+        if isinstance(item, (datetime, date)):
+            return item.isoformat()
+        if isinstance(item, Decimal):
+            return int(item) if item.as_tuple().exponent >= 0 else float(item)
+        return str(item)
+    return json.loads(json.dumps(value, default=encode, ensure_ascii=False))
+
+
+def audit_document(conn, kind, identity, action, before, after, actor_id=None, actor_name=""):
+    conn.execute(
+        "INSERT INTO document_audit(entity_type,entity_id,action,before_json,after_json,actor_id,actor_name)"
+        " VALUES(%s,%s,%s,%s,%s,%s,%s)",
+        (kind, str(identity), action, Jsonb(_jsonable(before)) if before is not None else None,
+         Jsonb(_jsonable(after)) if after is not None else None, actor_id, actor_name),
+    )
+
+
+def _saved_request(conn, scope, actor_id, request_id, fingerprint):
+    if not request_id:
+        return None
+    actor_key = str(actor_id or "local")
+    # Locks both a first request and its concurrent retries before a row exists.
+    conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                 (scope + ":" + actor_key + ":" + request_id,))
+    old = conn.execute(
+        "SELECT fingerprint,response_json FROM document_save_requests"
+        " WHERE scope=%s AND actor_key=%s AND request_id=%s", (scope, actor_key, request_id),
+    ).fetchone()
+    if old and old["fingerprint"] != fingerprint:
+        raise DocumentConflict("คำขอบันทึกนี้ถูกใช้กับข้อมูลอื่นแล้ว / This save request was used with different contents")
+    return old["response_json"] if old else None
+
+
+def _remember_request(conn, scope, actor_id, request_id, fingerprint, response):
+    if request_id:
+        conn.execute(
+            "INSERT INTO document_save_requests(scope,actor_key,request_id,fingerprint,response_json) VALUES(%s,%s,%s,%s,%s)",
+            (scope, str(actor_id or "local"), request_id, fingerprint, Jsonb(_jsonable(response))),
+        )
+
+
+def request_fingerprint(payload):
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
+
+
+def save_quotation(record: dict[str, Any], *, update_ref="", expected_version=None,
+                   request_id="", fingerprint="", actor_id=None, actor_name="",
+                   preserve_image_path=False) -> dict[str, Any]:
+    columns = ["quote_date", "customer", "customer_code", "item_description", "product_reference",
+               "product_image_path", "revised_from_ref", "product_key", "product_label", "size_text",
+               "length_reference", "inputs_json", "formulas_json", "results_json", "unit_price", "total_price",
+               "grams_per_item", "pack_quantity", "pack_weight_kg", "sack_quantity", "sack_weight_kg"]
+    data = {**record, "inputs_json": record["inputs"], "formulas_json": record["formulas"], "results_json": record["results"]}
+    for name in ("customer_code", "item_description", "product_reference", "product_image_path", "revised_from_ref", "length_reference"):
+        data.setdefault(name, "")
+    for name in ("pack_quantity", "pack_weight_kg", "sack_quantity", "sack_weight_kg"):
+        data.setdefault(name, 0)
     with pool().connection() as conn:
         with conn.transaction():
-            quote_date = record["quote_date"]
-            ref = record.get("quote_ref") or next_reference(conn, quote_date)
-            row = conn.execute(
-                """
-                INSERT INTO quotations (
-                    quote_ref, quote_date, customer, customer_code, item_description,
-                    product_reference, product_image_path, revised_from_ref, product_key,
-                    product_label, size_text, length_reference, inputs_json, formulas_json,
-                    results_json, unit_price, total_price, grams_per_item, pack_quantity,
-                    pack_weight_kg, sack_quantity, sack_weight_kg
-                ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s
-                )
-                RETURNING id, quote_ref, created_at
-                """,
-                (
-                    ref,
-                    quote_date,
-                    record["customer"],
-                    record.get("customer_code", ""),
-                    record.get("item_description", ""),
-                    record.get("product_reference", ""),
-                    record.get("product_image_path", ""),
-                    record.get("revised_from_ref", ""),
-                    record["product_key"],
-                    record["product_label"],
-                    record["size_text"],
-                    record.get("length_reference", ""),
-                    json.dumps(record["inputs"], ensure_ascii=False),
-                    json.dumps(record["formulas"], ensure_ascii=False),
-                    json.dumps(record["results"], ensure_ascii=False),
-                    record["unit_price"],
-                    record["total_price"],
-                    record["grams_per_item"],
-                    record.get("pack_quantity", 0),
-                    record.get("pack_weight_kg", 0),
-                    record.get("sack_quantity", 0),
-                    record.get("sack_weight_kg", 0),
-                ),
-            ).fetchone()
-    return row
+            replay = _saved_request(conn, "quotation", actor_id, request_id, fingerprint)
+            if replay is not None:
+                return replay
+            old = None
+            if update_ref:
+                old = conn.execute("SELECT * FROM quotations WHERE quote_ref=%s FOR UPDATE", (update_ref,)).fetchone()
+                if old is None:
+                    raise KeyError("Quotation not found")
+                if expected_version is None or int(old["version"]) != expected_version:
+                    raise DocumentConflict("รายการถูกแก้ไขแล้ว กรุณาเปิดใหม่ / Quotation changed; reopen it before saving")
+                # Preserve identity, revision lineage and imported provenance.
+                data["revised_from_ref"] = old["revised_from_ref"]
+                data["inputs_json"] = {**old["inputs_json"], **data["inputs_json"]}
+                if preserve_image_path:
+                    data["product_image_path"] = old["product_image_path"]
+            values = [Jsonb(data[c]) if c.endswith("_json") else data[c] for c in columns]
+            if old:
+                assignments = ",".join(c + "=%s" for c in columns)
+                row = conn.execute(
+                    f"UPDATE quotations SET {assignments},version=version+1,updated_at=now() WHERE quote_ref=%s RETURNING *",
+                    values + [update_ref],
+                ).fetchone()
+            else:
+                ref = record.get("quote_ref") or next_reference(conn, record["quote_date"])
+                names, marks = ",".join(columns), ",".join(["%s"] * len(columns))
+                row = conn.execute(f"INSERT INTO quotations(quote_ref,{names}) VALUES(%s,{marks}) RETURNING *",
+                                   [ref] + values).fetchone()
+            audit_document(conn, "quotation", row["quote_ref"], "update" if old else "create", old, row, actor_id, actor_name)
+            response = _jsonable({key: row[key] for key in ("id", "quote_ref", "created_at", "version")})
+            _remember_request(conn, "quotation", actor_id, request_id, fingerprint, response)
+    return response
 
 
 # What a "product" is when the book is folded into folders: the clean name the
@@ -139,7 +193,7 @@ PRODUCT_NAME_SQL = "COALESCE(NULLIF(inputs_json->>'product_name', ''), item_desc
 # JSON blocks. Picked out here rather than shipping 500 whole documents.
 HISTORY_SELECT = (
     "SELECT id, quote_ref, quote_date, customer, customer_code, item_description,"
-    " product_reference, product_key, product_label, size_text,"
+    " product_reference, product_key, product_label, size_text, inputs_json,"
     " unit_price, total_price, grams_per_item, created_at,"
     " pack_quantity, pack_weight_kg,"
     " inputs_json->>'sale_basis' AS sale_basis,"
@@ -583,26 +637,68 @@ def get_coa(coa_id: int) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def save_sample_inspection(record: dict[str, Any]) -> dict[str, Any]:
+def delete_coa(coa_id: int, *, actor_id=None, actor_name="") -> bool:
+    """Only an unissued draft may be removed; its previous contents remain audited."""
     with pool().connection() as conn:
         with conn.transaction():
+            old = conn.execute("SELECT * FROM coa_certificates WHERE id=%s FOR UPDATE", (coa_id,)).fetchone()
+            if not old:
+                return False
+            if old["status"] == "FINAL" or old["certificate_no"]:
+                raise DocumentConflict("ใบรับรองที่ออกแล้วลบไม่ได้ / An issued COA cannot be deleted")
+            conn.execute("DELETE FROM coa_certificates WHERE id=%s", (coa_id,))
+            audit_document(conn, "coa", coa_id, "delete", old, None, actor_id, actor_name)
+    return True
+
+
+def sample_number_day(now: datetime | None = None) -> date:
+    return (now or datetime.now(ZoneInfo("Asia/Bangkok"))).astimezone(ZoneInfo("Asia/Bangkok")).date()
+
+
+def save_sample_inspection(record: dict[str, Any], *, expected_revision=None,
+                           expected_quote_version=None, request_id="", fingerprint="",
+                           actor_id=None, actor_name="") -> dict[str, Any]:
+    record = dict(record)
+    with pool().connection() as conn:
+        with conn.transaction():
+            replay = _saved_request(conn, "sample", actor_id, request_id, fingerprint)
+            if replay is not None:
+                return replay
             report_id = record.pop("id", None)
+            old = None
             if report_id:
-                old = conn.execute("SELECT * FROM sample_inspections WHERE id=%s FOR UPDATE", (report_id,)).fetchone()
+                old = conn.execute("SELECT * FROM sample_inspections WHERE id=%s AND deleted_at IS NULL FOR UPDATE", (report_id,)).fetchone()
                 if not old:
                     raise KeyError("Sample inspection not found")
+                if expected_revision is None or old["revision"] != expected_revision:
+                    raise DocumentConflict("รายงานถูกแก้ไขแล้ว กรุณาเปิดใหม่ / Report changed; reopen it before saving")
+                if old["quote_ref"] != record["quote_ref"]:
+                    raise DocumentConflict("รายงานเดิมเปลี่ยนใบอ้างอิงไม่ได้ / Create a new report to change its source")
                 report_no, revision = old["report_no"], int(old["revision"]) + 1
+                record["source_snapshot"] = old["source_snapshot"]
             else:
-                day = record["inspection_date"]
-                seq = conn.execute("""INSERT INTO sample_inspection_counters(counter_date,last_number) VALUES(%s,1)
-                    ON CONFLICT(counter_date) DO UPDATE SET last_number=sample_inspection_counters.last_number+1
+                # Keep the standards selected in the picker coherent with this
+                # issuance. Quotation edits need FOR UPDATE, so they cannot
+                # cross this check and the report INSERT in this transaction.
+                quote = conn.execute("SELECT version FROM quotations WHERE quote_ref=%s FOR SHARE",
+                                     (record["quote_ref"],)).fetchone()
+                if not quote:
+                    raise KeyError("Quotation not found")
+                selected_version = expected_quote_version if expected_quote_version is not None else 1
+                snapshot_version = record["source_snapshot"].get("quote_version")
+                if selected_version != quote["version"] or snapshot_version != quote["version"]:
+                    raise DocumentConflict("ใบเสนอราคาถูกแก้ไขแล้ว กรุณาเลือกต้นฉบับใหม่ / Source quotation changed; select it again before saving")
+                day = sample_number_day()
+                seq = conn.execute("""INSERT INTO sample_daily_counters(counter_date,last_number) VALUES(%s,1)
+                    ON CONFLICT(counter_date) DO UPDATE SET last_number=sample_daily_counters.last_number+1
                     RETURNING last_number""", (day,)).fetchone()["last_number"]
-                report_no, revision = f"SIR-{day:%Y%m%d}-{seq:04d}", 1
+                report_no, revision = f"SI-{day:%Y%m%d}-{seq:04d}", 1
             columns = ["quote_ref","customer","customer_code","part_no","product","inspection_date","product_key",
                 "width_mm","length_mm","thickness_mm","thickness_mode","gusset_mm","tolerance_width_mm",
                 "tolerance_length_mm","tolerance_thickness_mm","tolerance_gusset_left_mm","tolerance_gusset_right_mm",
-                "results_json","display_json","overall_result","remarks","checked_by","approved_by"]
-            values = [json.dumps(record[c], ensure_ascii=False) if c in {"results_json", "display_json"} else record.get(c) for c in columns]
+                "results_json","display_json","source_snapshot","length_datum","overall_result","remarks","checked_by","approved_by"]
+            json_fields = {"results_json", "display_json", "source_snapshot"}
+            values = [Jsonb(record[c]) if c in json_fields else record.get(c) for c in columns]
             if report_id:
                 assigns = ",".join(f"{c}=%s" for c in columns)
                 row = conn.execute(f"UPDATE sample_inspections SET {assigns},revision=%s,updated_at=now() WHERE id=%s RETURNING *",
@@ -611,20 +707,30 @@ def save_sample_inspection(record: dict[str, Any]) -> dict[str, Any]:
                 names, marks = ",".join(columns), ",".join(["%s"]*len(columns))
                 row = conn.execute(f"INSERT INTO sample_inspections({names},report_no,revision) VALUES({marks},%s,%s) RETURNING *",
                     values + [report_no, revision]).fetchone()
-    return dict(row)
+            audit_document(conn, "sample", row["id"], "update" if old else "create", old, row, actor_id, actor_name)
+            response = _jsonable(dict(row))
+            _remember_request(conn, "sample", actor_id, request_id, fingerprint, response)
+    return response
 
 
 def list_sample_inspections(limit: int = 200) -> list[dict[str, Any]]:
     with pool().connection() as conn:
-        return [dict(r) for r in conn.execute("SELECT * FROM sample_inspections ORDER BY updated_at DESC LIMIT %s", (limit,)).fetchall()]
+        return [dict(r) for r in conn.execute("SELECT * FROM sample_inspections WHERE deleted_at IS NULL ORDER BY updated_at DESC LIMIT %s", (limit,)).fetchall()]
 
 
 def get_sample_inspection(report_id: int) -> dict[str, Any] | None:
     with pool().connection() as conn:
-        row = conn.execute("SELECT * FROM sample_inspections WHERE id=%s", (report_id,)).fetchone()
+        row = conn.execute("SELECT * FROM sample_inspections WHERE id=%s AND deleted_at IS NULL", (report_id,)).fetchone()
     return dict(row) if row else None
 
 
-def delete_sample_inspection(report_id: int) -> bool:
+def delete_sample_inspection(report_id: int, *, actor_id=None, actor_name="") -> bool:
     with pool().connection() as conn:
-        return conn.execute("DELETE FROM sample_inspections WHERE id=%s", (report_id,)).rowcount > 0
+        with conn.transaction():
+            old = conn.execute("SELECT * FROM sample_inspections WHERE id=%s AND deleted_at IS NULL FOR UPDATE", (report_id,)).fetchone()
+            if not old:
+                return False
+            row = conn.execute("UPDATE sample_inspections SET deleted_at=now(),deleted_by=%s,updated_at=now() WHERE id=%s RETURNING *",
+                               (actor_name, report_id)).fetchone()
+            audit_document(conn, "sample", report_id, "delete", old, row, actor_id, actor_name)
+    return True

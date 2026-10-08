@@ -9,6 +9,8 @@ COPY pantongone-frontend/ ./
 RUN npm run build
 
 FROM python:3.13-slim
+ARG SOURCE_REV=unknown
+LABEL org.opencontainers.image.revision=$SOURCE_REV
 
 # UID fixed as a NUMBER: Docker volumes keep ownership by number, not by name.
 # Change it on a later build and the new container cannot write the data the
@@ -28,7 +30,7 @@ COPY server/core/ ./core/
 COPY server/api/ ./api/
 COPY server/tests/ ./tests/
 
-# Served by the API itself at /app, so this host needs no second container and
+# Served by the API itself at /, so this host needs no second container and
 # no change to nginx - which is what keeps the .exe's update path (/api/version
 # and /download) exactly where every installed copy expects it.
 COPY --from=web /build/dist/ ./web/

@@ -310,9 +310,10 @@ export function Desk({ meta, session, onSignOut }: Props) {
   const [helpOpen, setHelpOpen] = useState(false)
   const [planning, setPlanning] = useState<PlanningState>(emptyPlanning)
   const [workDept, setWorkDept] = useState<'blown' | 'cutting'>('blown')
-  /* Set when the form was loaded from a saved record: the save becomes a
-   * linked revision, never an overwrite (app.py editing_source_ref). */
+  /* The version prevents a stale form from replacing a newer saved record. */
   const [editingRef, setEditingRef] = useState('')
+  const [editingVersion, setEditingVersion] = useState<number | null>(null)
+  const pendingSave = useRef<{ body: string; requestId: string } | null>(null)
   const inFlight = useRef<AbortController | null>(null)
 
   /* Read once and kept. 627 names is nothing to filter in memory and everything
@@ -399,13 +400,20 @@ export function Desk({ meta, session, onSignOut }: Props) {
     return true
   }
 
-  async function keep() {
+  async function keep(asRevision = false) {
     if (savePending.current || !labels) return
     if (pricingMode === 'trial') {
       window.alert('ขณะนี้เป็นโหมดคำนวณราคาทดลอง ซึ่งจะไม่เก็บข้อมูล\nกรุณาเลือก “คำนวณราคาจริง” ก่อนเก็บเอกสาร')
       return
     }
     if (!validateHeader()) return
+    if (editingRef && !asRevision && editingVersion === null) {
+      window.alert('กรุณาเปิดรายการใหม่อีกครั้งก่อนบันทึก / Reopen the quotation before saving')
+      return
+    }
+    if (editingRef && !window.confirm(asRevision
+      ? `ออกฉบับแก้ไขใหม่จาก ${editingRef} โดยเก็บฉบับเดิมไว้?`
+      : `บันทึกแก้ไข ${editingRef} ด้วยเลขเดิม โดยเก็บข้อมูลก่อนแก้ไว้ตรวจย้อนหลัง?`)) return
     savePending.current = true
     setSaving(true)
     try {
@@ -413,7 +421,7 @@ export function Desk({ meta, session, onSignOut }: Props) {
       if (!calculated) return
       /* The QUESTION goes up, never the answer: the server works the figures
        * out again and stores what IT got (LAW K1). */
-      const row = await saveQuotation({
+      const payload = {
         moq_quantity: form.moq_quantity ?? '',
         moq_unit: form.moq_quantity?.trim() ? (form.moq_unit ?? '') : '',
         calc: toRequest(form, meta),
@@ -422,15 +430,22 @@ export function Desk({ meta, session, onSignOut }: Props) {
         customer_code: form.customer_code,
         item_description: form.item_description,
         product_reference: form.product_reference,
-        revised_from_ref: editingRef,
-      })
+        revised_from_ref: asRevision ? editingRef : '',
+        update_ref: asRevision ? '' : editingRef,
+        ...(editingRef && !asRevision && editingVersion !== null ? { expected_version: editingVersion } : {}),
+      }
+      const body = JSON.stringify(payload)
+      if (pendingSave.current?.body !== body) pendingSave.current = { body, requestId: crypto.randomUUID() }
+      const row = await saveQuotation({ ...payload, request_id: pendingSave.current.requestId })
+      pendingSave.current = null
       setLastSavedRef(row.quote_ref)
       window.alert(
         labels.notes.saved_body
           + '\n' + labels.notes.quote_ref_prefix + row.quote_ref
-          + (editingRef ? '\n' + labels.history.revised_from.split('{ref}').join(editingRef) : ''),
+          + (editingRef ? (asRevision ? '\n' + labels.history.revised_from.split('{ref}').join(editingRef) : '\nแก้ไขรายการเดิมแล้ว ไม่เพิ่มรายการซ้ำ') : ''),
       )
       setEditingRef('')
+      setEditingVersion(null)
       setForm(blank(meta))
       setAnswer(null)
       setSaved('')
@@ -485,6 +500,9 @@ export function Desk({ meta, session, onSignOut }: Props) {
       return
     }
     if (!window.confirm(labels.notes.draft_confirm_body)) return
+    setEditingRef('')
+    setEditingVersion(null)
+    pendingSave.current = null
     setForm({ ...blank(meta), ...draft })
     setAnswer(null)
     setSaved('')
@@ -500,6 +518,8 @@ export function Desk({ meta, session, onSignOut }: Props) {
     setSaved('')
     setRefText(null)
     setEditingRef('')
+    setEditingVersion(null)
+    pendingSave.current = null
     setStatus(labels ? labels.history.new_status : null)
     setPricingMode('trial')
     setTab('pricing')
@@ -527,6 +547,8 @@ export function Desk({ meta, session, onSignOut }: Props) {
       const answer = await quotationForm(quoteRef)
       setForm({ ...blank(meta), ...(answer.form as Partial<Form>), ...(copyNew ? { quote_date: todayLocal() } : {}) })
       setEditingRef(copyNew ? '' : answer.quote_ref)
+      setEditingVersion(copyNew ? null : answer.version ?? null)
+      pendingSave.current = null
       setSaved('')
       setRefText(copyNew ? '' : answer.ref_text)
       setStatus(copyNew ? `คัดลอกจาก ${answer.quote_ref} — รายการใหม่ ยังไม่บันทึก กรุณาตรวจราคาแล้วคำนวณใหม่` : answer.status)
@@ -738,8 +760,8 @@ export function Desk({ meta, session, onSignOut }: Props) {
           {tab !== 'pricing' && <button type="button" className="desk-accent" onClick={() => runCalculate()}>
             {labels.buttons.calculate}
           </button>}
-          {tab !== 'pricing' && may(SAVE) && <button type="button" className="desk-accent" onClick={keep} disabled={saving}>
-            {labels.buttons.save}
+          {tab !== 'pricing' && may(SAVE) && <button type="button" className="desk-accent" onClick={() => keep()} disabled={saving}>
+            {editingRef ? 'บันทึกแก้ไขรายการเดิม' : labels.buttons.save}
           </button>}
           <button type="button" onClick={printSummary}>
             {labels.buttons.print}
@@ -896,6 +918,21 @@ export function Desk({ meta, session, onSignOut }: Props) {
                   </div>
                 </Box>
               )}
+              {drawn.includes('gusset') && (
+                <Box label={labels.fields.gusset}>
+                  <div className="desk-pair">
+                    <input value={form.gusset} onChange={(e) => set({ gusset: e.target.value })} />
+                    <select
+                      value={form.width_unit}
+                      onChange={(e) => set({ width_unit: e.target.value })}
+                    >
+                      {(meta?.dimension_units ?? []).map((u) => (
+                        <option key={u}>{u}</option>
+                      ))}
+                    </select>
+                  </div>
+                </Box>
+              )}
               {drawn.includes('length') && (
                 <Box label={labels.fields.length}>
                   <div className="desk-pair">
@@ -921,21 +958,6 @@ export function Desk({ meta, session, onSignOut }: Props) {
                     <select
                       value={form.sold_length_unit}
                       onChange={(e) => set({ sold_length_unit: e.target.value })}
-                    >
-                      {(meta?.dimension_units ?? []).map((u) => (
-                        <option key={u}>{u}</option>
-                      ))}
-                    </select>
-                  </div>
-                </Box>
-              )}
-              {drawn.includes('gusset') && (
-                <Box label={labels.fields.gusset}>
-                  <div className="desk-pair">
-                    <input value={form.gusset} onChange={(e) => set({ gusset: e.target.value })} />
-                    <select
-                      value={form.width_unit}
-                      onChange={(e) => set({ width_unit: e.target.value })}
                     >
                       {(meta?.dimension_units ?? []).map((u) => (
                         <option key={u}>{u}</option>
@@ -1199,9 +1221,10 @@ export function Desk({ meta, session, onSignOut }: Props) {
           </div>
           <div className="desk-pricing-bottom" aria-label="คำสั่งคำนวณราคา">
             <button type="button" className="desk-accent" onClick={() => runCalculate()} disabled={saving}>{labels.buttons.calculate}</button>
-            {may(SAVE) && <button type="button" className="desk-accent" onClick={keep} disabled={saving || pricingMode === 'trial'}>{saving ? 'กำลังเก็บข้อมูล…' : labels.buttons.save}</button>}
+            {may(SAVE) && <button type="button" className="desk-accent" onClick={() => keep()} disabled={saving || pricingMode === 'trial'}>{saving ? 'กำลังเก็บข้อมูล…' : editingRef ? 'บันทึกแก้ไขรายการเดิม' : labels.buttons.save}</button>}
+            {editingRef && may(SAVE) && <button type="button" onClick={() => keep(true)} disabled={saving || pricingMode === 'trial'}>บันทึกเป็นฉบับแก้ไขใหม่ / Revision</button>}
             <button type="button" disabled={saving || !lastSavedRef} onClick={() => editFromHistory(lastSavedRef)}>แก้ไขรายการที่บันทึกล่าสุด</button>
-            <span role="status">{editingRef ? `กำลังแก้ไขอ้างอิง ${editingRef} — บันทึกเป็นรุ่นใหม่ เก็บต้นฉบับเดิม` : status ?? labels.notes.ready}</span>
+            <span role="status">{editingRef ? `กำลังแก้ไข ${editingRef} — บันทึกเลขเดิม ไม่เพิ่มรายการซ้ำ` : status ?? labels.notes.ready}</span>
           </div>
         </section>
       )}

@@ -101,6 +101,7 @@ RULES: list[tuple[frozenset[str], re.Pattern[str], frozenset[str]]] = [
         ("GET", r"/api/sample-inspections/\d+/print", {SAMPLE}),
         # COA / Quality.
         ("GET POST", r"/api/coa", {COA}),
+        ("DELETE", r"/api/coa/\d+", {COA}),
         ("GET", r"/api/coa/sources", {COA}),
         ("GET", r"/api/coa/\d+/print", {COA}),
     ]
