@@ -72,3 +72,27 @@ All 109 old records, audit rows and machine/master data remained unchanged.
 ImportReview: the three supplied exports are identical and contain items=[].
 There is no data to import from this package. This does not establish that
 the CEO's browser or a different export has no records; nothing was erased.
+
+Verified production completion
+Application revision: 5e528a05a6d08e4df811419b2be7065916e054a7.
+Deployed image: sha256:e7985cbda1a5f29ef9d59c6966670b5277968a1e8eda3dc4a234ba6d2ede56dd.
+The deployment parity gate passed; live revision/image agree and are healthy.
+All seven public HTML/asset files match the locally verified frontend build.
+
+The ceo-local-v2 batch was applied once. After import:
+- Quotations: 17,404 -> 17,469 active; trash: 0 -> 26.
+- Drawing: 2 -> 9; Sample: 0 -> 8; COA remains 0.
+- All 18,287 preexisting business rows remain byte-equivalent.
+- Four raw files match the original manifest sizes and SHA256 hashes.
+- 308 source ledger rows, 52 audit events and all 115 target-bearing source
+  links verify correctly. All imported saved-read/print paths pass with no
+  recalculation or database mutation; the three active incompatible flags
+  are present. Public pricing and BlowCut health endpoints return HTTP 200.
+
+Fresh pre-import custom-format backup: 1,064,044 bytes, restored successfully
+to a disposable database and verified against all pre-import business hashes.
+SHA256: bacfadbe868d6eaab5e8c4c05b325659034ed80b59f44d4308a798967231645e.
+Host evidence: /srv/thaiplastic/backups/local-data-20261009-064943/.
+Local evidence: D:/tmp/pantong-data-import-20261009/.
+Deploy backups also retain source, previous image and pre-migration database.
+ImportReview remains unimported because the supplied files contain no items.
