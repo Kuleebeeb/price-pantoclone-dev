@@ -518,7 +518,8 @@ export const relatedTable = (params: {
 
 /** Everything the Edit button pours back into the form, as box-ready strings. */
 export const quotationForm = (quoteRef: string) =>
-  request<{ quote_ref: string; version: number; form: Record<string, unknown>; ref_text: string; status: string }>(
+  request<{ quote_ref: string; version: number; form: Record<string, unknown>; ref_text: string; status: string;
+    calculator_compatible?: boolean; calculator_warning?: string }>(
     `/api/quotations/${encodeURIComponent(quoteRef)}/form`,
   )
 

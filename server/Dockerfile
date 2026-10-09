@@ -29,6 +29,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY server/core/ ./core/
 COPY server/api/ ./api/
 COPY server/tests/ ./tests/
+COPY server/deploy/import_local_history.py ./deploy/import_local_history.py
 
 # Served by the API itself at /, so this host needs no second container and
 # no change to nginx - which is what keeps the .exe's update path (/api/version

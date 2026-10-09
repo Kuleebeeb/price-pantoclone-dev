@@ -163,7 +163,14 @@ def save_quotation(record: dict[str, Any], *, update_ref="", expected_version=No
                     raise DocumentConflict("รายการถูกแก้ไขแล้ว กรุณาเปิดใหม่ / Quotation changed; reopen it before saving")
                 # Preserve identity, revision lineage and imported provenance.
                 data["revised_from_ref"] = old["revised_from_ref"]
-                data["inputs_json"] = {**old["inputs_json"], **data["inputs_json"]}
+                fresh_inputs = data["inputs_json"]
+                data["inputs_json"] = {**old["inputs_json"], **fresh_inputs}
+                if isinstance(old["inputs_json"].get("dimensions"), dict):
+                    # Keep legacy metadata, but do not retain a stale second set of sizes.
+                    data["inputs_json"]["dimensions"] = {
+                        key: fresh_inputs.get(key, value)
+                        for key, value in old["inputs_json"]["dimensions"].items()
+                    }
                 if preserve_image_path:
                     data["product_image_path"] = old["product_image_path"]
             values = [Jsonb(data[c]) if c.endswith("_json") else data[c] for c in columns]
@@ -436,11 +443,26 @@ def trash_quotation(
     with pool().connection() as conn:
         with conn.transaction():
             row = conn.execute(
-                "DELETE FROM quotations q WHERE q.quote_ref = %s RETURNING to_jsonb(q) AS row_json",
+                "SELECT to_jsonb(q) AS row_json FROM quotations q WHERE q.quote_ref = %s FOR UPDATE",
                 (quote_ref,),
             ).fetchone()
             if row is None:
                 return False
+            # Sample issuance holds this quotation FOR SHARE until its insert
+            # commits. Recheck after our lock: the API's earlier friendly check
+            # can miss that uncommitted report, and its FK now retains identity
+            # independently of whether the quotation is active or in the trash.
+            linked = conn.execute(
+                "SELECT COALESCE(certificate_no, 'COA DRAFT #' || id) AS doc"
+                " FROM coa_certificates WHERE quote_ref = %s"
+                " UNION ALL SELECT report_no AS doc FROM sample_inspections WHERE quote_ref = %s",
+                (quote_ref, quote_ref),
+            ).fetchall()
+            if linked:
+                documents = ", ".join(item["doc"] for item in linked)
+                raise DocumentConflict("ลบไม่ได้ ใบเสนอราคานี้ถูกใช้ในเอกสาร " + documents
+                                       + " / Cannot delete: used by " + documents)
+            conn.execute("DELETE FROM quotations WHERE quote_ref = %s", (quote_ref,))
             conn.execute(
                 """
                 INSERT INTO quotation_trash (quote_ref, row_json, reason, typed_actor,

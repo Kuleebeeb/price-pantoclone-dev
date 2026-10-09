@@ -1,0 +1,74 @@
+CEO local history import — 2026-10-09
+
+Scope
+The user authorized production data updates from LOCAL_DATA_EXPORT_20261009
+for PantongOne, BlowCut and ImportReview. Source data stays outside Git and
+the public web root. This supersedes the October 8 functions-only scope.
+
+PantongOne
+The importer validates all four files against manifest SHA256 and sizes.
+It defaults to a read-only dry run. --apply uses one transaction, fails on
+existing identities or busy application tables, and never replaces records.
+Replaying the same source batch is a no-op. Counter floors only increase.
+Migration 0013 retains quotation identities after trash moves so issued
+Sample documents can retain a hidden parent and their exact saved snapshot.
+Normal trash operations lock the quotation and recheck linked documents in
+the same transaction, including a Sample committed concurrently with deletion.
+
+Source batch: 4530ea19ca820b73feb504e01d616131ba14adde30b4a416272d0885f43dd90a
+91 quotation identities: 65 active, 26 trash; 7 Drawing; 8 Sample.
+28 quotations have stored calculation results, retained without recalculation.
+63 visual records contain inputs only; trusted production core derives results
+and explicitly records their provenance. All original files and 308 source
+ledger rows remain available for byte-exact recovery and reconciliation.
+52 source audit events are retained; 14 missing timestamps remain NULL.
+No COA documents were present in the supplied source.
+
+Mapping version: ceo-local-v2. There are 14 incompatible historical quotations:
+12 film-cover quotations (2 active), one active kilogram-quantity quotation,
+and one zero-price quotation in trash. Saved prices can be viewed and printed;
+Edit/Copy and same-REF updates are blocked until calculation-model review.
+Recorded per-piece and per-kg amounts preserve finalpiece/finalkg, including
+the one kilogram-sale record. Derived comparison display is labeled and
+respects saved no-deduction flags. Source suggested prices remain separate.
+Legacy dimensions are kept consistent after same-REF edits without changing
+the saved before-snapshot or issued document snapshots. History Part No.
+uses product_reference; top-level dimensions take precedence over old nested
+copies, including values omitted from an old nested structure.
+
+Validation before production
+- Real disposable PostgreSQL: importer 14/14; checksum/duplicate rejection,
+  rollback, NOWAIT locks, exact raw files, hidden-parent FK, counter floors,
+  preexisting row preservation and replay without mutation.
+- Restored production backup: migration 0013 preserves all 18,296 existing
+  rows in 16 old tables and applies idempotently through the migration runner.
+- Import rehearsal: all 18,287 preexisting business rows in 10 tables remain
+  byte-equivalent; only the expected 65/26/7/8 additions occur.
+- Every imported active quotation passes History/Details/Form/saved-print;
+  all imported Drawing and Sample documents reopen/print, and trash remains
+  listed. Verification forces database reads only and forbids recalculation.
+- Legacy history edit HTTP regression, history DB/tree tests and October CEO
+  HTTP suite pass; handoff HTTP suite 90/90; permissions regression passes.
+- Real PostgreSQL concurrent Sample/trash regression preserves the issued
+  snapshot, refuses deletion, and permits an ordinary trash/restore cycle.
+- Frontend 93 tests, TypeScript/Vite build and lint pass.
+- Existing October 8 formula-edge exclusions remain unchanged; this release
+  does not claim the excluded legacy formula cases have been resolved.
+
+Operation
+Deploy a clean committed source via server/deploy/ship.sh. It retains database,
+source and prior image backups. Then make a fresh custom-format pg_dump,
+capture preexisting business-row hashes, dry-run inside the running API image,
+and apply the import once. Verify batch/file/row counts, existing row hashes,
+all imported saved-view/print paths, image revision and public HTTPS health.
+Private evidence is retained outside the repository under the operator's
+pantong-data-import-20261009 directory and private host backup directory.
+Do not restore a full backup over newer user writes without reconciliation.
+
+Other applications
+BlowCut: additive import completed separately using its existing deployed
+application. Added 15 records and 27 document mappings; 121 active/3 trash.
+All 109 old records, audit rows and machine/master data remained unchanged.
+ImportReview: the three supplied exports are identical and contain items=[].
+There is no data to import from this package. This does not establish that
+the CEO's browser or a different export has no records; nothing was erased.

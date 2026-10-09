@@ -545,6 +545,12 @@ export function Desk({ meta, session, onSignOut }: Props) {
     if ((form.customer.trim() || form.width.trim() || form.length.trim()) && !window.confirm('มีข้อมูลในหน้ากรอก ต้องการแทนที่ด้วยรายการที่เลือกเพื่อแก้ไขหรือไม่?')) return
     try {
       const answer = await quotationForm(quoteRef)
+      if (answer.calculator_compatible === false) {
+        const warning = answer.calculator_warning?.trim() || 'This saved quotation uses a calculation model that this calculator cannot edit or copy. You can still view and reprint it, or start a new calculation after reviewing its inputs.'
+        setStatus(warning)
+        window.alert(warning)
+        return
+      }
       setForm({ ...blank(meta), ...(answer.form as Partial<Form>), ...(copyNew ? { quote_date: todayLocal() } : {}) })
       setEditingRef(copyNew ? '' : answer.quote_ref)
       setEditingVersion(copyNew ? null : answer.version ?? null)

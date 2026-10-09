@@ -65,7 +65,13 @@ import store  # noqa: E402
 # len "1.7.1 (Phase 1) - Planning screen" (app.py:51, mtime 18:12) - MOI HON ban
 # .exe v1.5.1 (17:31). CEO sua nguon nhieu lan mot ngay: truoc khi tin ban clone,
 # so mtime va APP_VERSION cua Z:\1\app.py voi chuoi duoi day.
-APP_VERSION = "src-2026-10-08 CEO handover: quotation edits, drawing units, inspection snapshots"
+APP_VERSION = "src-2026-10-09 local history import and legacy quotation mapping"
+LEGACY_CALCULATOR_WARNING = (
+    "ใบเสนอราคาเดิมใช้สูตรหรือวิธีนับจำนวนต่างจากเครื่องคำนวณปัจจุบัน "
+    "ยังดูและพิมพ์ราคาเดิมได้ กรุณาจัดทำรายการใหม่หลังตรวจสูตร / "
+    "This historical quotation uses a different calculation or quantity convention. "
+    "Its saved prices remain available to view and print; review the calculation before creating a new quotation."
+)
 app = FastAPI(title="Plastic Pricing", version=APP_VERSION, docs_url="/api/docs")
 
 
@@ -908,6 +914,10 @@ def api_save(req: SaveRequest, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="กรุณากรอกรหัสลูกค้า / Customer code is required")
     if req.update_ref.strip() and req.revised_from_ref.strip():
         raise HTTPException(status_code=400, detail="เลือกแก้ไขเดิมหรือออก revision / Choose update or revision, not both")
+    if req.update_ref.strip():
+        original = db.get_quotation(req.update_ref.strip())
+        if original and (original.get("inputs_json", {}).get("import_provenance") or {}).get("calculator_compatible") is False:
+            raise HTTPException(status_code=409, detail=LEGACY_CALCULATOR_WARNING)
     moq_quantity, moq_unit = moq_fields(req.moq_quantity, req.moq_unit)
     try:
         out = run_calculation(req.calc)
@@ -1114,10 +1124,11 @@ def history_input_details(inputs: dict[str, Any]) -> str:
         "moq_quantity": "จำนวนขั้นต่ำ MOQ", "moq_unit": "หน่วย MOQ"}
     lines = []
     for key, value in inputs.items():
-        if value is None or value == "" or key in {"normalized", "price_basis", "human_summary"}:
+        if value is None or value == "" or key in {"normalized", "price_basis", "human_summary", "import_provenance"}:
             continue
         if key == "dimensions" and isinstance(value, dict):
-            lines.extend(history_input_details(value).splitlines())
+            # Flat fields are the current form; nested ones can be old import provenance.
+            lines.extend(history_input_details({k: v for k, v in value.items() if k not in inputs}).splitlines())
             continue
         label = extra.get(key) or labels.get(aliases.get(key, key)) or key
         if isinstance(value, dict) and "value" in value:
@@ -1173,7 +1184,7 @@ def _history_cells(row: dict[str, Any]) -> dict[str, str]:
         "customer": str(row.get("customer") or ""),
         "sale_unit": _sale_label(row.get("sale_basis")),
         "item": _item_cell(row),
-        "product": str(row.get("product_label") or ""),
+        "product": str(row.get("product_reference") or ""),
         "size": history_size(row),
         "thickness": _thickness_cell(row.get("thickness_json")),
         "grams": "—" if by_roll else n(float(row.get("grams_per_item") or 0)),
@@ -1343,9 +1354,9 @@ def api_related_table(
 
 
 def _inputs_measure(inputs: dict[str, Any], name: str) -> dict[str, Any]:
-    if "dimensions" in inputs:
-        return inputs["dimensions"].get(name, {}) or {}
-    return inputs.get(name, {}) or {}
+    if name in inputs:
+        return inputs.get(name) or {}
+    return (inputs.get("dimensions") or {}).get(name, {}) or {}
 
 
 @app.get("/api/quotations/{quote_ref:path}/details")
@@ -1554,6 +1565,10 @@ def api_quotation_form(quote_ref: str, request: Request) -> dict[str, Any]:
     if permissions.CALCULATE not in permissions.held(request.state.user):
         for key in permissions.PRICE_FIELDS:
             answer["form"].pop(key, None)
+    compatible = (inputs.get("import_provenance") or {}).get("calculator_compatible") is not False
+    answer["calculator_compatible"] = compatible
+    if not compatible:
+        answer["calculator_warning"] = LEGACY_CALCULATOR_WARNING
     return answer
 
 
@@ -2720,7 +2735,11 @@ def api_delete(quote_ref: str, request: Request, req: QuotationDeleteRequest | N
     if len(typed) > 200:
         raise HTTPException(status_code=400, detail="ชื่อผู้ดำเนินการยาวเกิน 200 ตัวอักษร / name over 200 characters")
     user_id, who = _account_name(request)
-    if not db.trash_quotation(quote_ref, reason=reason, typed_actor=typed, user_id=user_id, user_name=who):
+    try:
+        deleted = db.trash_quotation(quote_ref, reason=reason, typed_actor=typed, user_id=user_id, user_name=who)
+    except db.DocumentConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not deleted:
         raise HTTPException(status_code=404, detail="ไม่พบใบเสนอราคา / Quotation not found")
     return {"deleted": quote_ref}
 

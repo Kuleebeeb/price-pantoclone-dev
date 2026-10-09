@@ -98,7 +98,9 @@ def asked(method: str, path: str):
 
 check("GET /api/coa is a real route", main._route_answers(asked("GET", "/api/coa")))
 check("a ref with a slash reaches its real route", main._route_answers(asked("GET", "/api/quotations/2569/09-01/print")))
-check("DELETE /api/coa/7 is no route at all", not main._route_answers(asked("DELETE", "/api/coa/7")))
+check("DELETE /api/coa/7 is a real route", main._route_answers(asked("DELETE", "/api/coa/7")))
+check("COA deletion requires the COA screen", P.required("DELETE", "/api/coa/7") == frozenset({P.COA}))
+check("history alone cannot delete COA", P.refusal("DELETE", "/api/coa/7", who(P.HISTORY)) is not None)
 check("an unknown path is no route at all", not main._route_answers(asked("GET", "/api/new-thing")))
 
 print("the quotation picker and the form serve the drawing tab too")
